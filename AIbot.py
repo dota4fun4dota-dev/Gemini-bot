@@ -6,22 +6,23 @@ from datetime import datetime, timedelta
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, PreCheckoutQuery, LabeledPrice
 from aiogram.filters import CommandStart
-from google import genai # Импортируем БЕСПЛАТНЫЙ ИИ от Google
+from openai import AsyncOpenAI # Универсальный клиент для ИИ
 
 # ==================== ТВОИ НАСТРОЙКИ ====================
-BOT_TOKEN = "8535823645:AAEnS_30By0LIIZtOAx220JNZ5bkXf90aJU"
-PROVIDER_TOKEN = "" # Для Telegram Stars пустой
+BOT_TOKEN = "8535823645:AAEnS_30By0LIIZtOAx220JNZ5bkXf90aJU8535823645:AAEnS_30By0LIIZtOAx220JNZ5bkXf90aJU"
+PROVIDER_TOKEN = "" # Для Telegram Stars оставляем пустым
 
-# Вставь сюда бесплатный ключ от Google AI Studio (начинается на AIzaSy...)
-GEMINI_API_KEY = "AQ.Ab8RN6JwMmDezUD89qOCCfzgUriAeoB6_vw9FnyQsYNvhNV2AQ" 
+# Настройка Gemini через стабильный открытый шлюз (чтобы Railway не выдавал ошибку региона)
+ai_client = AsyncOpenAI(
+    api_key="AQ.Ab8RN6JwMmDezUD89qOCCfzgUriAeoB6_vw9FnyQsYNvhNV2AQ",
+    base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
+)
+AI_MODEL = "gemini-1.5-flash"
 # ========================================================
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
-
-# Инициализируем бесплатный клиент Google AI
-ai_client = genai.Client(api_key=GEMINI_API_KEY)
 
 # === РАБОТА С БАЗОЙ ДАННЫХ ===
 def init_db():
@@ -158,7 +159,7 @@ async def process_successful_payment(message: Message):
         "Задавайте мне любые вопросы! 🚀"
     )
 
-# === ОБРАБОТКА НАСТОЯЩИХ ТЕКСТОВЫХ ЗАПРОСОВ К БЕСПЛАТНОМУ ИИ ===
+# === ОБРАБОТКА НАСТОЯЩИХ ТЕКСТОВЫХ ЗАПРОСОВ К ИИ ===
 @dp.message(F.text)
 async def handle_ai_request(message: Message):
     user_id = message.from_user.id
@@ -184,22 +185,22 @@ async def handle_ai_request(message: Message):
         else:
             increment_request(user_id, current_count)
 
-    # Показываем красивый статус генерации
     status_message = await message.answer("🧠 *ИИ генерирует ответ... Пожалуйста, подождите.*")
     
     try:
-        # Запрос к бесплатной модели Gemini 1.5 Flash
-        response = ai_client.models.generate_content(
-            model='gemini-1.5-flash',
-            contents=message.text,
-            config=genai.types.GenerateContentConfig(
-                system_instruction="Ты — опытный, полезный и умный ИИ-ассистент. Отвечай четко, структурировано и на русском языке."
-            )
+        # Запрос к Gemini через универсальный формат
+        response = await ai_client.chat.completions.create(
+            model=AI_MODEL,
+            messages=[
+                {"role": "system", "content": "Ты — полезный и умный ИИ-ассистент. Отвечай четко, структурировано и на русском языке."},
+                {"role": "user", "content": message.text}
+            ],
+            max_tokens=1500
         )
-        ai_response = response.text
+        ai_response = response.choices[0].message.content
         
         await status_message.delete()
-        await message.answer(ai_response, parse_mode="Markdown")
+        await message.answer(ai_response)
         
     except Exception as e:
         logging.error(f"Ошибка ИИ: {e}")
