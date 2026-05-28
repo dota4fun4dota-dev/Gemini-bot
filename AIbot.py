@@ -15,21 +15,22 @@ PROVIDER_TOKEN = "" # Для Telegram Stars оставляем пустым
 # Твой рабочий токен OpenRouter
 OPENROUTER_API_KEY = "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" 
 
-# Настройка под стабильный шлюз OpenRouter
 ai_client = AsyncOpenAI(
     api_key=OPENROUTER_API_KEY, 
     base_url="https://openrouter.ai/api/v1"
 )
-AI_MODEL = "deepseek/deepseek-chat" # Тот же самый DeepSeek-V3 через стабильный мост
+AI_MODEL = "deepseek/deepseek-chat" 
 # ========================================================
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# === РАБОТА С БАЗОЙ ДАННЫХ ===
+# === НЕУБИВАЕМАЯ БАЗА ДАННЫХ В ПАМЯТИ ===
+DB_PATH = ":memory:"
+
 def init_db():
-    conn = sqlite3.connect("users.db")
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
@@ -43,7 +44,7 @@ def init_db():
     conn.close()
 
 def get_user(user_id):
-    conn = sqlite3.connect("users.db")
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("SELECT sub_until, free_requests_date, requests_count FROM users WHERE user_id = ?", (user_id,))
     row = cursor.fetchone()
@@ -58,7 +59,7 @@ def get_user(user_id):
     return row
 
 def update_user_sub(user_id, days):
-    conn = sqlite3.connect("users.db")
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     until_date = datetime.now() + timedelta(days=days)
     cursor.execute("UPDATE users SET sub_until = ? WHERE user_id = ?", (until_date.strftime('%Y-%m-%d %H:%M:%S'), user_id))
@@ -66,7 +67,7 @@ def update_user_sub(user_id, days):
     conn.close()
 
 def increment_request(user_id, current_count):
-    conn = sqlite3.connect("users.db")
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     today = datetime.today().strftime('%Y-%m-%d')
     cursor.execute("UPDATE users SET free_requests_date = ?, requests_count = ? WHERE user_id = ?", (today, current_count + 1, user_id))
@@ -105,3 +106,99 @@ async def process_profile(callback):
     status = "❌ Нет подписки"
     if sub_until:
         until_dt = datetime.strptime(sub_until, '%Y-%m-%d %H:%M:%S')
+        if until_dt > datetime.now():
+            status = f"🟢 Активна до {until_dt.strftime('%d.%m.%Y %H:%M')}"
+            left_reqs = "♾ Безлимит"
+
+    profile_text = f"📊 Твой профиль:\n\n👤 ID: {callback.from_user.id}\n👑 Статус подписки: {status}\n⏳ Доступно ИИ-запросов на сегодня: {left_reqs}"
+    await callback.message.answer(profile_text)
+    await callback.answer()
+
+@dp.callback_query(F.data == "buy_sub")
+async def process_buy_sub(callback):
+    await callback.message.answer("⚙️ Выбери подходящий тарифный план подписки:", reply_markup=prices_keyboard())
+    await callback.answer()
+
+@dp.callback_query(F.data.startswith("pay_"))
+async def send_sub_invoice(callback):
+    days = int(callback.data.split("_")[1])
+    tariff_data = {
+        7: {"title": "Подписка на 7 дней", "price": 50},
+        30: {"title": "Подписка на 30 дней", "price": 150},
+        365: {"title": "Подписка на 365 дней", "price": 500}
+    }
+    await bot.send_invoice(
+        chat_id=callback.from_user.id,
+        title=tariff_data[days]["title"],
+        description="Полный безлимитный доступ к ИИ-помощнику без ограничений по скорости и количеству запросов.",
+        payload=f"sub_{days}",
+        provider_token=PROVIDER_TOKEN,
+        currency="XTR",
+        prices=[LabeledPrice(label="Цена", amount=tariff_data[days]["price"])]
+    )
+    await callback.answer()
+
+@dp.pre_checkout_query()
+async def process_pre_checkout(pre_checkout_query: PreCheckoutQuery):
+    await bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True)
+
+@dp.message(F.successful_payment)
+async def process_successful_payment(message: Message):
+    payload = message.successful_payment.invoice_payload
+    days = int(payload.split("_")[1])
+    update_user_sub(message.from_user.id, days)
+    success_text = f"🎉 Ура! Оплата прошла успешно!\n\nВам начислен безлимитный доступ на {days} дней. Задавайте мне любые вопросы! 🚀"
+    await message.answer(success_text)
+
+# === ОБРАБОТКА ТЕКСТОВЫХ ЗАПРОСОВ К ИИ ===
+@dp.message(F.text)
+async def handle_ai_request(message: Message):
+    user_id = message.from_user.id
+    sub_until, req_date, req_count = get_user(user_id)
+    
+    has_sub = False
+    if sub_until:
+        until_dt = datetime.strptime(sub_until, '%Y-%m-%d %H:%M:%S')
+        if until_dt > datetime.now():
+            has_sub = True
+
+    if not has_sub:
+        today = datetime.today().strftime('%Y-%m-%d')
+        current_count = req_count if req_date == today else 0
+        
+        if current_count >= 3:
+            limit_text = "⚠️ Лимит бесплатных запросов на сегодня исчерпан (3 из 3).\n\nЧтобы продолжить общаться с ИИ без ограничений, оформите подписку."
+            await message.answer(limit_text, reply_markup=main_menu_keyboard())
+            return
+        else:
+            increment_request(user_id, current_count)
+
+    status_message = await message.answer("🧠 *ИИ генерирует ответ... Пожалуйста, подождите.*")
+    
+    try:
+        response = await ai_client.chat.completions.create(
+            model=AI_MODEL,
+            messages=[
+                {"role": "system", "content": "Ты — полезный и умный ИИ-ассистент. Отвечай четко, структурировано и на русском языке."},
+                {"role": "user", "content": message.text}
+            ],
+            max_tokens=1500
+        )
+        ai_response = response.choices[0].message.content
+        
+        await status_message.delete()
+        await message.answer(ai_response)
+        
+    except Exception:
+        logging.error("Ошибка при запросе к ИИ")
+        await status_message.edit_text("❌ Произошла ошибка при обращении к ИИ. Попробуйте позже.")
+
+# === ЗАПУСК БОТА ===
+async def main():
+    init_db() # Инициализируем базу данных прямо перед стартом полинга
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    if sys.platform == 'win32':
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    asyncio.run(main())
