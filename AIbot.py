@@ -6,18 +6,21 @@ from datetime import datetime, timedelta
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, PreCheckoutQuery, LabeledPrice
 from aiogram.filters import CommandStart
-from openai import AsyncOpenAI # Универсальная библиотека
+from openai import AsyncOpenAI # Официальный клиент для работы с DeepSeek API
 
 # ==================== ТВОИ НАСТРОЙКИ ====================
 BOT_TOKEN = "8535823645:AAEnS_30By0LIIZtOAx220JNZ5bkXf90aJU"
-PROVIDER_TOKEN = "" # Для Telegram Stars пустой
+PROVIDER_TOKEN = "" # Для Telegram Stars оставляем пустым
 
-# Подключаем бесплатный шлюз, который не требует личных ключей
+# Твой официальный токен DeepSeek
+DEEPSEEK_API_KEY = "sk-b7303ecad65245d094f328633a6a5843" 
+
+# Подключаем официальный сервер DeepSeek
 ai_client = AsyncOpenAI(
-    api_key="free-mode-enabled", 
-    base_url="https://api.deepinfra.com/v1/openai"
+    api_key=DEEPSEEK_API_KEY, 
+    base_url="https://api.deepseek.com/v1"
 )
-AI_MODEL = "deepseek-ai/DeepSeek-V3" 
+AI_MODEL = "deepseek-chat" # Официальное название модели DeepSeek-V3
 # ========================================================
 
 logging.basicConfig(level=logging.INFO)
@@ -188,30 +191,18 @@ async def handle_ai_request(message: Message):
     status_message = await message.answer("🧠 *ИИ генерирует ответ... Пожалуйста, подождите.*")
     
     try:
-        # Запрос к DeepSeek-V3 через открытый сервер
+        # Официальный запрос к DeepSeek через универсальный формат
         response = await ai_client.chat.completions.create(
             model=AI_MODEL,
             messages=[
                 {"role": "system", "content": "Ты — полезный и умный ИИ-ассистент. Отвечай четко, структурировано и на русском языке."},
                 {"role": "user", "content": message.text}
             ],
-            max_tokens=1200
+            max_tokens=1500
         )
         ai_response = response.choices[0].message.content
         
         await status_message.delete()
         await message.answer(ai_response)
         
-    except Exception as e:
-        logging.error(f"Ошибка ИИ: {e}")
-        await status_message.edit_text("❌ Произошла ошибка при обращении к ИИ. Попробуйте позже.")
-
-# === ЗАПУСК БОТА ===
-async def main():
-    await dp.start_polling(bot)
-
-if __name__ == "__main__":
-    init_db()
-    if sys.platform == 'win32':
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-    asyncio.run(main())
+    except Exception as
