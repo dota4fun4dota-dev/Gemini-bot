@@ -9,7 +9,7 @@ from aiogram.filters import CommandStart
 from openai import AsyncOpenAI # Универсальный клиент для ИИ
 
 # ==================== ТВОИ НАСТРОЙКИ ====================
-BOT_TOKEN = "8535823645:AAEnS_30By0LIIZtOAx220JNZ5bkXf90aJU8535823645:AAEnS_30By0LIIZtOAx220JNZ5bkXf90aJU"
+BOT_TOKEN = "8535823645:AAEnS_30By0LIIZtOAx220JNZ5bkXf90aJU"
 PROVIDER_TOKEN = "" # Для Telegram Stars оставляем пустым
 
 # Настройка Gemini через стабильный открытый шлюз (чтобы Railway не выдавал ошибку региона)
