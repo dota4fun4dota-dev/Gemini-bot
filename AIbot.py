@@ -91,14 +91,9 @@ def prices_keyboard():
 @dp.message(CommandStart())
 async def cmd_start(message: Message):
     get_user(message.from_user.id)
-    await message.answer(
-        f"👋 Привет, {message.from_user.first_name}!\n\n"
-        "Я твой личный умный ИИ-помощник нового поколения.\n"
-        "Ты можешь отправить мне любой вопрос, попросить написать реферат или код.\n\n"
-        "⚠️ Без подписки тебе доступно **3 запроса в сутки**.\n"
-        "Используй кнопки ниже, чтобы проверить баланс или снять ограничения 👇",
-        reply_markup=main_menu_keyboard()
-    )
+    # Упаковано в одну строчку, чтобы не было ошибок синтаксиса при копировании
+    text = f"👋 Привет, {message.from_user.first_name}!\n\nЯ твой личный умный ИИ-помощник нового поколения.\nТы можете отправить мне любой вопрос, попросить написать реферат или код.\n\n⚠️ Без подписки тебе доступно 3 запроса в сутки.\nИспользуй кнопки ниже, чтобы проверить баланс или снять ограничения 👇"
+    await message.answer(text, reply_markup=main_menu_keyboard())
 
 @dp.callback_query(F.data == "my_profile")
 async def process_profile(callback):
@@ -115,12 +110,8 @@ async def process_profile(callback):
             status = f"🟢 Активна до {until_dt.strftime('%d.%m.%Y %H:%M')}"
             left_reqs = "♾ Безлимит"
 
-    await callback.message.answer(
-        f"📊 **Твой профиль:**\n\n"
-        f"👤 ID: `{callback.from_user.id}`\n"
-        f"👑 Статус подписки: {status}\n"
-        f"⏳ Доступно ИИ-запросов на сегодня: **{left_reqs}**"
-    )
+    profile_text = f"📊 Твой профиль:\n\n👤 ID: {callback.from_user.id}\n👑 Статус подписки: {status}\n⏳ Доступно ИИ-запросов на сегодня: {left_reqs}"
+    await callback.message.answer(profile_text)
     await callback.answer()
 
 @dp.callback_query(F.data == "buy_sub")
@@ -156,11 +147,8 @@ async def process_successful_payment(message: Message):
     payload = message.successful_payment.invoice_payload
     days = int(payload.split("_")[1])
     update_user_sub(message.from_user.id, days)
-    await message.answer(
-        f"🎉 **Ура! Оплата прошла успешно!**\n\n"
-        f"Вам начислен безлимитный доступ на **{days} дней**. "
-        "Задавайте мне любые вопросы! 🚀"
-    )
+    success_text = f"🎉 Ура! Оплата прошла успешно!\n\nВам начислен безлимитный доступ на {days} дней. Задавайте мне любые вопросы! 🚀"
+    await message.answer(success_text)
 
 # === ОБРАБОТКА ТЕКСТОВЫХ ЗАПРОСОВ К ИИ ===
 @dp.message(F.text)
@@ -179,16 +167,13 @@ async def handle_ai_request(message: Message):
         current_count = req_count if req_date == today else 0
         
         if current_count >= 3:
-            await message.answer(
-                "⚠️ **Лимит бесплатных запросов на сегодня исчерпан (3 из 3).**\n\n"
-                "Чтобы продолжить общаться с ИИ без ограничений, оформите подписку.",
-                reply_markup=main_menu_keyboard()
-            )
+            limit_text = "⚠️ Лимит бесплатных запросов на сегодня исчерпан (3 из 3).\n\nЧтобы продолжить общаться с ИИ без ограничений, оформите подписку."
+            await message.answer(limit_text, reply_markup=main_menu_keyboard())
             return
         else:
             increment_request(user_id, current_count)
 
-    status_message = await message.answer("🧠 *ИИ генерирует ответ... Пожалуйста, подождите.*")
+    status_message = await message.answer("🧠 ИИ генерирует ответ... Пожалуйста, подождите.")
     
     try:
         response = await ai_client.chat.completions.create(
@@ -204,7 +189,7 @@ async def handle_ai_request(message: Message):
         await status_message.delete()
         await message.answer(ai_response)
         
-    except Exception: # Теперь тут вообще нет 'as', ломаться нечему
+    except Exception:
         logging.error("Ошибка при запросе к DeepSeek")
         await status_message.edit_text("❌ Произошла ошибка при обращении к ИИ. Попробуйте позже.")
 
