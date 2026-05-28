@@ -6,23 +6,22 @@ from datetime import datetime, timedelta
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, PreCheckoutQuery, LabeledPrice
 from aiogram.filters import CommandStart
-from openai import AsyncOpenAI # Универсальный клиент для ИИ
+from google import genai # Переходим на официальный и самый стабильный клиент Google
 
 # ==================== ТВОИ НАСТРОЙКИ ====================
 BOT_TOKEN = "8535823645:AAEnS_30By0LIIZtOAx220JNZ5bkXf90aJU"
 PROVIDER_TOKEN = "" # Для Telegram Stars оставляем пустым
 
-# Настройка Gemini через стабильный открытый шлюз (чтобы Railway не выдавал ошибку региона)
-ai_client = AsyncOpenAI(
-    api_key="AQ.Ab8RN6JwMmDezUD89qOCCfzgUriAeoB6_vw9FnyQsYNvhNV2AQ",
-    base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
-)
-AI_MODEL = "gemini-1.5-flash"
+# Твой ключ Gemini
+GEMINI_API_KEY = "AQ.Ab8RN6JwMmDezUD89qOCCfzgUriAeoB6_vw9FnyQsYNvhNV2AQ"
 # ========================================================
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
+
+# Инициализируем официальный клиент Google AI
+ai_client = genai.Client(api_key=GEMINI_API_KEY)
 
 # === РАБОТА С БАЗОЙ ДАННЫХ ===
 def init_db():
@@ -188,16 +187,15 @@ async def handle_ai_request(message: Message):
     status_message = await message.answer("🧠 *ИИ генерирует ответ... Пожалуйста, подождите.*")
     
     try:
-        # Запрос к Gemini через универсальный формат
-        response = await ai_client.chat.completions.create(
-            model=AI_MODEL,
-            messages=[
-                {"role": "system", "content": "Ты — полезный и умный ИИ-ассистент. Отвечай четко, структурировано и на русском языке."},
-                {"role": "user", "content": message.text}
-            ],
-            max_tokens=1500
+        # Официальный вызов модели Gemini 1.5 Flash через родной SDK
+        response = ai_client.models.generate_content(
+            model='gemini-1.5-flash',
+            contents=message.text,
+            config=genai.types.GenerateContentConfig(
+                system_instruction="Ты — опытный, полезный и умный ИИ-ассистент. Отвечай четко, структурировано и на русском языке."
+            )
         )
-        ai_response = response.choices[0].message.content
+        ai_response = response.text
         
         await status_message.delete()
         await message.answer(ai_response)
