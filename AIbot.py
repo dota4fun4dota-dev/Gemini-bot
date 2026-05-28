@@ -6,22 +6,23 @@ from datetime import datetime, timedelta
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, PreCheckoutQuery, LabeledPrice
 from aiogram.filters import CommandStart
-from google import genai # Переходим на официальный и самый стабильный клиент Google
+from openai import AsyncOpenAI # Универсальная библиотека
 
 # ==================== ТВОИ НАСТРОЙКИ ====================
 BOT_TOKEN = "8535823645:AAEnS_30By0LIIZtOAx220JNZ5bkXf90aJU"
-PROVIDER_TOKEN = "" # Для Telegram Stars оставляем пустым
+PROVIDER_TOKEN = "" # Для Telegram Stars пустой
 
-# Твой ключ Gemini
-GEMINI_API_KEY = "AQ.Ab8RN6JwMmDezUD89qOCCfzgUriAeoB6_vw9FnyQsYNvhNV2AQ"
+# Подключаем бесплатный шлюз, который не требует личных ключей
+ai_client = AsyncOpenAI(
+    api_key="free-mode-enabled", 
+    base_url="https://api.deepinfra.com/v1/openai"
+)
+AI_MODEL = "deepseek-ai/DeepSeek-V3" 
 # ========================================================
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
-
-# Инициализируем официальный клиент Google AI
-ai_client = genai.Client(api_key=GEMINI_API_KEY)
 
 # === РАБОТА С БАЗОЙ ДАННЫХ ===
 def init_db():
@@ -187,15 +188,16 @@ async def handle_ai_request(message: Message):
     status_message = await message.answer("🧠 *ИИ генерирует ответ... Пожалуйста, подождите.*")
     
     try:
-        # Официальный вызов модели Gemini 1.5 Flash через родной SDK
-        response = ai_client.models.generate_content(
-            model='gemini-1.5-flash',
-            contents=message.text,
-            config=genai.types.GenerateContentConfig(
-                system_instruction="Ты — опытный, полезный и умный ИИ-ассистент. Отвечай четко, структурировано и на русском языке."
-            )
+        # Запрос к DeepSeek-V3 через открытый сервер
+        response = await ai_client.chat.completions.create(
+            model=AI_MODEL,
+            messages=[
+                {"role": "system", "content": "Ты — полезный и умный ИИ-ассистент. Отвечай четко, структурировано и на русском языке."},
+                {"role": "user", "content": message.text}
+            ],
+            max_tokens=1200
         )
-        ai_response = response.text
+        ai_response = response.choices[0].message.content
         
         await status_message.delete()
         await message.answer(ai_response)
