@@ -10,7 +10,7 @@ from openai import AsyncOpenAI
 
 # ==================== ТВОИ НАСТРОЙКИ ====================
 # Твой рабочий токен бота из @BotFather
-BOT_TOKEN = "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"
+BOT_TOKEN = "8535823645:AAHq8uvQWH2xd_VTcMpFsndnOOP7EzdGbV4"
 
 # Твой НОВЫЙ свежий ключ OpenRouter
 OPENROUTER_API_KEY = "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" 
