@@ -27,24 +27,31 @@ dp = Dispatcher()
 
 @dp.message(CommandStart())
 async def cmd_start(message: Message):
-    await message.answer("✅ Бот готов!\n\nМои функции:\n1. Просто текст -> Groq (Llama 3.3)\n2. /giga [текст] -> GigaChat\n3. 'Нарисуй [текст]' -> DALL-E 3")
+    await message.answer("✅ Бот готов!\n\nМои функции:\n1. Просто текст -> Ответ Groq (Llama 3.3)\n2. /giga [текст] -> Ответ GigaChat\n3. 'Нарисуй [описание]' -> DALL-E 3")
 
 # Обработка картинок (DALL-E 3)
-@dp.message(F.text.lower().contains("нарисуй"))
+@dp.message(F.text.lower().startswith("нарисуй"))
 async def image_handler(message: Message):
     prompt = message.text.lower().replace("нарисуй", "").strip()
-    msg = await message.answer("🎨 Рисую через DALL-E 3...")
+    if not prompt:
+        return await message.answer("Пожалуйста, напиши, что именно нужно нарисовать. Например: 'Нарисуй кота в скафандре'")
+    
+    msg = await message.answer("🎨 Рисую изображение через DALL-E 3...")
     try:
         response = await client_openai.images.generate(model="dall-e-3", prompt=prompt, n=1, size="1024x1024")
-        await message.answer_photo(photo=response.data[0].url)
+        await message.answer_photo(photo=response.data[0].url, caption=f"Результат по запросу: {prompt}")
         await msg.delete()
     except Exception as e:
-        await msg.edit_text(f"❌ Ошибка генерации: {e}")
+        logger.error(f"Image Error: {e}")
+        await msg.edit_text(f"❌ Ошибка генерации картинки. Проверь баланс OpenAI. Детали: {str(e)[:50]}")
 
 # Обработка GigaChat
 @dp.message(F.text.startswith("/giga"))
 async def giga_handler(message: Message):
     prompt = message.text.replace("/giga", "").strip()
+    if not prompt:
+        return await message.answer("Введите текст для GigaChat.")
+    
     msg = await message.answer("🌌 GigaChat думает...")
     try:
         loop = asyncio.get_event_loop()
@@ -52,7 +59,8 @@ async def giga_handler(message: Message):
         await msg.delete()
         await message.answer(f"GigaChat: {response.choices[0].message.content}")
     except Exception as e:
-        await msg.edit_text(f"❌ Ошибка GigaChat: {e}")
+        logger.error(f"GigaChat Error: {e}")
+        await msg.edit_text("❌ Ошибка GigaChat. Проверь ключи в личном кабинете.")
 
 # Обработка Groq (основной чат)
 @dp.message(F.text)
@@ -63,7 +71,8 @@ async def groq_handler(message: Message):
         await msg.delete()
         await message.answer(f"Groq: {response.choices[0].message.content}")
     except Exception as e:
-        await msg.edit_text("❌ Ошибка Groq.")
+        logger.error(f"Groq Error: {e}")
+        await msg.edit_text("❌ Ошибка при обращении к Groq.")
 
 async def main():
     await bot.delete_webhook(drop_pending_updates=True)
