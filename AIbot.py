@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import httpx
+import json
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message
 from aiogram.filters import CommandStart
@@ -15,7 +16,7 @@ dp = Dispatcher()
 
 @dp.message(CommandStart())
 async def start(message: Message):
-    await message.answer("Готов! Напиши 'Нарисуй [описание]'.")
+    await message.answer("Я готов! Напиши 'Нарисуй [описание]'.")
 
 @dp.message(F.text.lower().startswith("нарисуй"))
 async def image_handler(message: Message):
@@ -27,39 +28,31 @@ async def image_handler(message: Message):
     
     async with httpx.AsyncClient() as client:
         try:
-            # 1. Создание
             resp = await client.post(f"{API_BASE_URL}/api/v1/jobs/createTask", json=payload, headers=headers)
-            # Извлекаем taskId прямо из корня или из data, если есть
-            resp_data = resp.json()
-            task_id = resp_data.get("taskId") or resp_data.get("data", {}).get("taskId")
+            task_id = resp.json().get("taskId") or resp.json().get("data", {}).get("taskId")
+            await msg.edit_text(f"🎨 Задача {task_id} принята. Рисую, подожди...")
             
-            await msg.edit_text(f"🎨 Задача {task_id} принята. Жду завершения...")
-            
-            # 2. Опрос статуса
-            for i in range(30):
-                await asyncio.sleep(10)
+            # Увеличенное время ожидания для медленных генераций
+            for i in range(40):
+                await asyncio.sleep(15) 
                 status_resp = await client.get(f"{API_BASE_URL}/api/v1/jobs/recordInfo?taskId={task_id}", headers=headers)
-                data = status_resp.json() # Берем весь JSON целиком
+                data = status_resp.json()
                 
-                logging.info(f"СЕРВЕР ОТВЕТИЛ: {data}")
-                
-                # ИСПРАВЛЕНИЕ: ищем state в корне ответа
+                # Проверяем состояние
                 if data.get("state") == "success":
-                    # Ссылка обычно приходит в resultJson или result
-                    import json
                     res_json = data.get("resultJson")
                     image_url = data.get("result", {}).get("url")
-                    
                     if res_json:
                         image_url = json.loads(res_json).get("url")
                     
-                    await message.answer_photo(photo=image_url, caption="Готово!")
-                    return await msg.delete()
+                    if image_url:
+                        await message.answer_photo(photo=image_url, caption="Готово!")
+                        return await msg.delete()
                 
-                elif data.get("state") == "failed":
-                    return await msg.edit_text("❌ Ошибка: Сервер вернул failed.")
+                # Если state всё еще 'waiting' или 'processing', цикл продолжается
+                logging.info(f"Ожидание генерации (попытка {i+1}/40)...")
             
-            await msg.edit_text("⚠️ Время вышло. Сервер всё ещё в статусе 'waiting'.")
+            await msg.edit_text("⚠️ Сервер долго готовит картинку. Попробуй позже.")
         except Exception as e:
             await msg.edit_text(f"⚠️ Ошибка: {str(e)}")
 
