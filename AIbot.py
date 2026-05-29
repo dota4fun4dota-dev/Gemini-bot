@@ -17,24 +17,29 @@ dp = Dispatcher()
 
 @dp.message(CommandStart())
 async def start(message: Message):
-    await message.answer("Привет! Напиши 'Нарисуй [описание]'.")
+    await message.answer("Привет! Напиши 'Нарисуй [описание]', и я приступлю к работе.")
 
 @dp.message(F.text.lower().startswith("нарисуй"))
 async def image_handler(message: Message):
     prompt = message.text.lower().replace("нарисуй", "").strip()
     if not prompt:
-        return await message.answer("Пожалуйста, напиши что нарисовать.")
+        return await message.answer("Пожалуйста, напиши описание после слова 'Нарисуй'.")
     
-    msg = await message.answer("⏳ Создаю задачу для Imagen4-fast...")
+    msg = await message.answer("⏳ Отправляю запрос на генерацию...")
     
-    headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
+    headers = {
+        "Authorization": f"Bearer {API_KEY}", 
+        "Content-Type": "application/json"
+    }
     
-    # === ИСПРАВЛЕНО НА ОСНОВЕ СКРИНШОТА ===
-    model_name = "google/imagen4-fast"
+    # ФИНАЛЬНАЯ СТРУКТУРА:
+    # 1. Используем точное имя модели
+    # 2. Передаем "prompt" (на английском!), как требует API
     payload = {
-        "model": model_name,
-        # Поле для текста теперь называется "подсказка"
-        "input": {"подсказка": prompt} 
+        "model": "google/imagen4-fast",
+        "input": {
+            "prompt": prompt
+        }
     }
     
     async with httpx.AsyncClient() as client:
@@ -43,21 +48,18 @@ async def image_handler(message: Message):
             resp = await client.post(f"{API_BASE}/createTask", json=payload, headers=headers)
             task_data = resp.json()
             
-            # Проверка на ошибки при создании
-            if task_data.get("code") != 200:
-                await msg.edit_text(f"❌ Не удалось создать задачу. Ответ сервера: {task_data}")
-                return
+            # Логируем, если пришла ошибка на этапе создания
+            if resp.status_code != 200:
+                return await msg.edit_text(f"❌ Ошибка API ({resp.status_code}): {task_data.get('msg', 'Неизвестная ошибка')}")
             
             task_id = task_data.get("data", {}).get("taskId")
-            
             if not task_id:
-                await msg.edit_text(f"❌ API не вернуло taskId. Полный ответ: {task_data}")
-                return
+                return await msg.edit_text(f"❌ API не вернуло taskId. Ответ: {task_data}")
             
-            await msg.edit_text(f"🎨 Задача принята ({task_id}). Ожидание...")
+            await msg.edit_text(f"🎨 Задача принята (ID: {task_id}). Жду результат...")
 
             # 2. Опрос статуса
-            for i in range(30):
+            for i in range(40):
                 await asyncio.sleep(10)
                 status_resp = await client.get(f"{API_BASE}/recordInfo?taskId={task_id}", headers=headers)
                 data = status_resp.json()
@@ -66,10 +68,8 @@ async def image_handler(message: Message):
                 logging.info(f"Статус Imagen4 (попытка {i+1}): {state}")
                 
                 if state == "success":
-                    # Безопасно пытаемся достать URL
-                    result = data.get("result", {})
-                    image_url = result.get("url")
-                    
+                    image_url = data.get("result", {}).get("url")
+                    # Если URL нет в result, пробуем достать из resultJson
                     if not image_url and data.get("resultJson"):
                         try:
                             image_url = json.loads(data["resultJson"]).get("url")
@@ -80,18 +80,16 @@ async def image_handler(message: Message):
                         await message.answer_photo(photo=image_url, caption=f"Готово: {prompt}")
                         return await msg.delete()
                     else:
-                        await msg.edit_text("❌ Задача выполнена, но ссылка на фото отсутствует.")
-                        return
+                        return await msg.edit_text("❌ Задача выполнена, но ссылка на фото пустая.")
                 
                 elif state == "failed":
-                    await msg.edit_text(f"❌ Генерация завершилась с ошибкой. Полный ответ: {data}")
-                    return
+                    return await msg.edit_text("❌ Ошибка генерации на стороне сервера.")
             
-            await msg.edit_text("⚠️ Время вышло. Сервер не успел сгенерировать картинку.")
+            await msg.edit_text("⚠️ Время вышло. Попробуй еще раз чуть позже.")
             
         except Exception as e:
-            logging.error(f"Ошибка: {e}")
-            await msg.edit_text(f"⚠️ Произошла ошибка в коде: {str(e)}")
+            logging.error(f"Ошибка в боте: {e}")
+            await msg.edit_text(f"⚠️ Ошибка: {str(e)}")
 
 async def main():
     await dp.start_polling(bot)
