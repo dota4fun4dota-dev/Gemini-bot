@@ -1,12 +1,10 @@
 import asyncio
 import logging
 import httpx
-import json
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message
 from aiogram.filters import CommandStart
 
-# === КОНФИГУРАЦИЯ ===
 BOT_TOKEN = "8980453196:AAGiMgy8bohMdOM6Z3nGpmos_ysCr2W_-Us"
 API_BASE_URL = "https://api.kie.ai" 
 API_KEY = "5911714ce3ffbc56f7064a9ad0708e0c" 
@@ -17,60 +15,39 @@ dp = Dispatcher()
 
 @dp.message(CommandStart())
 async def start(message: Message):
-    await message.answer("Привет! Напиши 'Нарисуй [описание]', и я создам картинку.")
+    await message.answer("Я готов! Напиши 'Нарисуй [описание]'.")
 
 @dp.message(F.text.lower().startswith("нарисуй"))
 async def image_handler(message: Message):
     prompt = message.text.lower().replace("нарисуй", "").strip()
-    if not prompt:
-        return await message.answer("Пожалуйста, напиши что нарисовать.")
-    
-    msg = await message.answer("⏳ Отправляю задачу в нейросеть...")
+    msg = await message.answer("⏳ Создаю задачу...")
     
     headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
-    payload = {
-        "model": "nano-banana-2",
-        "input": {"prompt": prompt, "aspect_ratio": "1:1", "resolution": "1K", "output_format": "png"}
-    }
+    payload = {"model": "nano-banana-2", "input": {"prompt": prompt}}
     
     async with httpx.AsyncClient() as client:
         try:
-            # 1. Создание задачи
             resp = await client.post(f"{API_BASE_URL}/api/v1/jobs/createTask", json=payload, headers=headers)
-            if resp.status_code != 200:
-                return await msg.edit_text(f"❌ Ошибка создания задачи: {resp.text}")
-            
             task_id = resp.json()["data"]["taskId"]
-            await msg.edit_text(f"🎨 Задача {task_id} принята. Рисую...")
+            await msg.edit_text(f"🎨 Задача {task_id} принята. Жду завершения...")
             
-            # 2. Опрос статуса
+            # Увеличил время до 300 секунд (30 раз по 10 сек)
             for i in range(30):
                 await asyncio.sleep(10)
                 status_resp = await client.get(f"{API_BASE_URL}/api/v1/jobs/recordInfo?taskId={task_id}", headers=headers)
                 data = status_resp.json().get("data", {})
                 
-                # Проверяем состояние
-                state = data.get("state")
+                # ВАЖНО: это выведет в логи ВСЕ поля, которые прислал сервер
+                logging.info(f"СЕРВЕР ОТВЕТИЛ: {data}")
                 
-                if state == "success":
-                    # Пытаемся достать URL из result, если пусто - из resultJson
+                if data.get("state") == "success":
                     image_url = data.get("result", {}).get("url")
-                    if not image_url and data.get("resultJson"):
-                        image_url = json.loads(data["resultJson"]).get("url")
-                    
-                    if image_url:
-                        await message.answer_photo(photo=image_url, caption=f"Готово: {prompt}")
-                        return await msg.delete()
-                    else:
-                        return await msg.edit_text("❌ Ошибка: статус success, но ссылка на изображение не найдена.")
+                    await message.answer_photo(photo=image_url, caption="Готово!")
+                    return await msg.delete()
                 
-                elif state == "failed":
-                    return await msg.edit_text("❌ Ошибка: Генерация не удалась (failed).")
-            
-            await msg.edit_text("⚠️ Время ожидания вышло. Сервер всё ещё обрабатывает запрос.")
+            await msg.edit_text("⚠️ Сервер всё ещё 'в процессе'. Проверь логи Railway!")
         except Exception as e:
-            logging.error(f"Error: {e}")
-            await msg.edit_text(f"⚠️ Произошла ошибка: {str(e)}")
+            await msg.edit_text(f"⚠️ Ошибка: {str(e)}")
 
 async def main():
     await dp.start_polling(bot)
