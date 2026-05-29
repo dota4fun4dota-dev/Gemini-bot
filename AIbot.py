@@ -9,10 +9,7 @@ from aiogram.filters import CommandStart
 from openai import AsyncOpenAI
 
 # ==================== ТВОИ НАСТРОЙКИ ====================
-# Твой рабочий токен бота из @BotFather
 BOT_TOKEN = "8535823645:AAHq8uvQWH2xd_VTcMpFsndnOOP7EzdGbV4"
-
-# Твой НОВЫЙ свежий ключ OpenRouter
 OPENROUTER_API_KEY = "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" 
 
 ai_client = AsyncOpenAI(
@@ -20,8 +17,8 @@ ai_client = AsyncOpenAI(
     base_url="https://openrouter.ai/api/v1"
 )
 
-# Используем проверенную бесплатную модель, которой не нужен баланс
-AI_MODEL = "meta-llama/llama-3-8b-instruct:free" 
+# Прописываем строго Gemini 2.0 Flash Experimental Free
+AI_MODEL = "google/gemini-2.0-flash-exp:free" 
 PROVIDER_TOKEN = "" 
 # ========================================================
 
