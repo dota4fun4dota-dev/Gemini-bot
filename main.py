@@ -1,3 +1,14 @@
+# В начало файла добавь:
+from googletrans import Translator
+translator = Translator()
+
+# Внутри функции draw_handler (перед строкой с ai_client.images.generate):
+try:
+    # Переводим промпт на английский
+    prompt = translator.translate(prompt, dest='en').text
+    print(f"Переведенный промпт: {prompt}") # Лог в консоли Railway
+except Exception:
+    pass # Если перевод не удался, пробуем оригинал
 # -*- coding: utf-8 -*-
 import os
 import sys
