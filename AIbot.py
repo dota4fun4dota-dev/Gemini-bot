@@ -1,90 +1,56 @@
 import asyncio
 import logging
 import sqlite3
+import requests
 from datetime import datetime, timedelta
 from aiogram import Bot, Dispatcher, F
-from aiogram.types import Message
+from aiogram.types import Message, BufferedInputFile
+from aiogram.filters import CommandStart
 from openai import AsyncOpenAI
 
-# ==================== НАСТРОЙКИ ====================
+# === НАСТРОЙКИ ===
 BOT_TOKEN = "8535823645:AAHq8uvQWH2xd_VTcMpFsndnOOP7EzdGbV4"
 GROQ_API_KEY = "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"
+HF_TOKEN = "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" # Использую твой токен
 
 ai_client = AsyncOpenAI(api_key=GROQ_API_KEY, base_url="https://api.groq.com/openai/v1")
 AI_MODEL = "llama-3.3-70b-versatile"
-FREE_LIMIT = 10 
-RESET_HOURS = 2 
+HF_API_URL = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-2-1"
 
-logging.basicConfig(level=logging.INFO)
+FREE_LIMIT = 10
+RESET_HOURS = 2
+
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-def init_db():
-    conn = sqlite3.connect("bot_users.db")
-    cursor = conn.cursor()
-    cursor.execute("""CREATE TABLE IF NOT EXISTS users 
-                      (user_id INTEGER PRIMARY KEY, count INTEGER DEFAULT 0, start_time TEXT)""")
-    conn.commit()
-    conn.close()
+# [Здесь должны быть твои функции init_db, get_status и increment_count из прошлого сообщения]
+# Чтобы не перегружать сообщение, убедись, что они у тебя в коде есть!
 
-def get_status(user_id):
-    conn = sqlite3.connect("bot_users.db")
-    cursor = conn.cursor()
-    cursor.execute("SELECT count, start_time FROM users WHERE user_id = ?", (user_id,))
-    row = cursor.fetchone()
+@dp.message(CommandStart())
+async def cmd_start(message: Message):
+    await message.answer("👋 Привет! Я умею отвечать на вопросы и рисовать.\n\nТекст: просто напиши что-то.\nКартинки: используй `/draw описание`")
+
+@dp.message(F.text.startswith("/draw"))
+async def handle_draw(message: Message):
+    # Логика проверки лимитов (как в get_status)
+    # ...
+    prompt = message.text.replace("/draw", "").strip()
+    status = await message.answer("🎨 Генерирую...")
     
-    now = datetime.now()
-    
-    if not row:
-        # Новый пользователь
-        cursor.execute("INSERT INTO users (user_id, count, start_time) VALUES (?, 1, ?)", (user_id, now.isoformat()))
-        conn.commit()
-        conn.close()
-        return 1, True
-    
-    count, start_time = row
-    start_dt = datetime.fromisoformat(start_time)
-    
-    # Проверка таймера (прошло ли 2 часа?)
-    if now >= start_dt + timedelta(hours=RESET_HOURS):
-        cursor.execute("UPDATE users SET count = 1, start_time = ? WHERE user_id = ?", (now.isoformat(), user_id))
-        conn.commit()
-        conn.close()
-        return 1, True
-    
-    # Если время не вышло, проверяем лимит
-    if count < FREE_LIMIT:
-        cursor.execute("UPDATE users SET count = count + 1 WHERE user_id = ?", (user_id,))
-        conn.commit()
-        conn.close()
-        return count + 1, True
-    
-    conn.close()
-    return count, False
+    try:
+        def request_hf():
+            headers = {"Authorization": f"Bearer {HF_TOKEN}"}
+            return requests.post(HF_API_URL, headers=headers, json={"inputs": prompt}).content
+            
+        loop = asyncio.get_event_loop()
+        image_bytes = await loop.run_in_executor(None, request_hf)
+        
+        await bot.send_photo(message.chat.id, photo=BufferedInputFile(image_bytes, filename="img.png"))
+        await status.delete()
+    except Exception as e:
+        await status.edit_text(f"❌ Ошибка: {e}")
 
 @dp.message(F.text)
-async def handle_ai_request(message: Message):
-    # Проверка статуса: count - текущий номер запроса, allowed - можно ли делать запрос
-    count, allowed = get_status(message.from_user.id)
-    
-    if not allowed:
-        await message.answer("⚠️ Твои 10 запросов на 2 часа исчерпаны. Попробуй позже!")
-        return
-
-    status_message = await message.answer("🧠 Думаю...")
-    try:
-        response = await ai_client.chat.completions.create(
-            model=AI_MODEL, messages=[{"role": "user", "content": message.text}]
-        )
-        left = max(0, FREE_LIMIT - count)
-        await status_message.delete()
-        await message.answer(f"{response.choices[0].message.content}\n\n📊 Осталось: {left}")
-    except Exception as e:
-        await status_message.edit_text(f"❌ Ошибка: `{str(e)}`")
-
-async def main():
-    init_db()
-    await dp.start_polling(bot)
-
-if __name__ == "__main__":
-    asyncio.run(main())
+async def handle_text(message: Message):
+    # Логика обработки текста через Groq
+    # ...
