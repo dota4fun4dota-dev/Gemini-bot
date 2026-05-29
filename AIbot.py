@@ -1,4 +1,3 @@
-import os
 import sys
 import asyncio
 import logging
@@ -8,57 +7,44 @@ from aiogram.types import Message
 from aiogram.filters import CommandStart
 from openai import AsyncOpenAI
 
-# 1. Принудительная очистка переменных окружения ДО импорта OpenAI
-for env_var in ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"]:
-    if env_var in os.environ:
-        del os.environ[env_var]
+# === КОНФИГУРАЦИЯ ===
+BOT_TOKEN = "8980453196:AAGiMgy8bohMdOM6Z3nGpmos_ysCr2W_-Us"
+GROQ_API_KEY = "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"
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# 2. Инициализация переменных
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+# Инициализация клиента для Groq
+# base_url указывает, что мы работаем через Groq, а не через OpenAI
+transport = httpx.AsyncHTTPTransport(verify=True)
+http_client = httpx.AsyncClient(transport=transport, timeout=60.0)
 
-if not BOT_TOKEN or not OPENAI_API_KEY:
-    logger.error("Ключи не заданы!")
-    sys.exit(1)
+client = AsyncOpenAI(
+    api_key=GROQ_API_KEY,
+    base_url="https://api.groq.com/openai/v1",
+    http_client=http_client
+)
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# 3. Использование чистого транспорта для httpx
-# Это гарантирует, что прокси не будут использованы
-transport = httpx.AsyncHTTPTransport(verify=True)
-client = AsyncOpenAI(
-    api_key=OPENAI_API_KEY,
-    http_client=httpx.AsyncClient(transport=transport, timeout=60.0)
-)
-
 @dp.message(CommandStart())
 async def cmd_start(message: Message):
-    await message.answer("👋 Бот активен и готов к работе!")
+    await message.answer("✅ Бот запущен и подключен к Groq Llama 3.3!")
 
-@dp.message(F.text.startswith("/draw"))
-async def draw_handler(message: Message):
-    prompt = message.text.replace("/draw", "").strip()
-    if not prompt:
-        await message.answer("Введите описание для рисунка.")
-        return
-    
-    msg = await message.answer("🎨 Генерирую...")
+@dp.message(F.text)
+async def handle_message(message: Message):
+    msg = await message.answer("🧠 Думаю...")
     try:
-        response = await client.images.generate(
-            model="dall-e-3",
-            prompt=prompt,
-            n=1,
-            size="1024x1024"
+        response = await client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": message.text}]
         )
-        await message.answer_photo(photo=response.data[0].url)
         await msg.delete()
+        await message.answer(response.choices[0].message.content)
     except Exception as e:
-        logger.error(f"Generation Error: {e}")
-        await msg.edit_text("❌ Ошибка генерации.")
+        logger.error(f"Groq Error: {e}")
+        await msg.edit_text("❌ Ошибка при обращении к ИИ.")
 
 async def main():
     await bot.delete_webhook(drop_pending_updates=True)
