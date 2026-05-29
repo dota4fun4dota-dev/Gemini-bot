@@ -27,19 +27,24 @@ dp = Dispatcher()
 async def cmd_start(message: Message):
     await message.answer("Привет! Я готов. Пиши /draw [описание] для генерации.")
 
+import unicodedata
+
 @dp.message(F.text.startswith("/draw"))
 async def draw_handler(message: Message):
     prompt = message.text.replace("/draw", "").strip()
     if not prompt:
-        await message.answer("Укажите описание для картинки.")
+        await message.answer("Укажите описание.")
         return
     
     msg = await message.answer("🎨 Генерирую...")
     try:
-        # Прямое использование строки как есть (она в Python 3 по умолчанию Unicode)
+        # Пытаемся нормализовать строку, удаляя спецсимволы, 
+        # которые могли бы вызвать конфликт кодировок
+        clean_prompt = unicodedata.normalize('NFKC', prompt)
+        
         response = await ai_client.images.generate(
             model="dall-e-3",
-            prompt=str(prompt),
+            prompt=clean_prompt,
             n=1,
             size="1024x1024"
         )
@@ -47,9 +52,8 @@ async def draw_handler(message: Message):
         await message.answer_photo(photo=image_url)
         await msg.delete()
     except Exception as e:
-        # Если ошибка все еще есть, мы выведем ее тип для отладки
-        await msg.edit_text(f"❌ Ошибка: {str(e)}")
-
+        # Если ошибка сохраняется, выводим её максимально подробно
+        await msg.edit_text(f"❌ Ошибка: {type(e).__name__}: {str(e)}")
 @dp.message(F.text)
 async def text_handler(message: Message):
     if message.text.startswith("/"): return
