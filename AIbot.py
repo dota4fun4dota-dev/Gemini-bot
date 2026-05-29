@@ -5,7 +5,6 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message
 from aiogram.filters import CommandStart
 
-# === КОНФИГУРАЦИЯ ===
 BOT_TOKEN = "8980453196:AAGiMgy8bohMdOM6Z3nGpmos_ysCr2W_-Us"
 API_BASE_URL = "https://api.kie.ai" 
 API_KEY = "5911714ce3ffbc56f7064a9ad0708e0c" 
@@ -21,10 +20,7 @@ async def start(message: Message):
 @dp.message(F.text.lower().startswith("нарисуй"))
 async def image_handler(message: Message):
     prompt = message.text.lower().replace("нарисуй", "").strip()
-    if not prompt:
-        return await message.answer("Укажи описание картинки!")
-    
-    msg = await message.answer("⏳ Создаю задачу в Nano Banana 2...")
+    msg = await message.answer("⏳ Отправляю задачу...")
     
     headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
     payload = {
@@ -34,46 +30,37 @@ async def image_handler(message: Message):
     
     async with httpx.AsyncClient() as client:
         try:
-            # 1. Запрос на создание
             resp = await client.post(f"{API_BASE_URL}/api/v1/jobs/createTask", json=payload, headers=headers)
-            if resp.status_code != 200:
-                return await msg.edit_text(f"❌ Ошибка создания: {resp.text}")
-            
             task_id = resp.json().get("data", {}).get("taskId")
-            await msg.edit_text(f"🎨 Задача {task_id} принята. Ожидаю готовность...")
+            await msg.edit_text(f"🎨 Задача {task_id} принята. Жду результат...")
             
-            # 2. Поллинг результата
-            for i in range(30): # Ждем до 150 секунд
-                await asyncio.sleep(5)
+            # УВЕЛИЧИЛИ ВРЕМЯ: 40 попыток по 10 секунд = до 400 секунд ожидания
+            for i in range(40):
+                await asyncio.sleep(10)
                 status_resp = await client.get(f"{API_BASE_URL}/api/v1/jobs/recordInfo?taskId={task_id}", headers=headers)
                 data = status_resp.json()
                 
-                # Логируем для отладки в Railway
-                logging.info(f"DEBUG: Task {task_id} response: {data}")
+                # ВЫВОДИМ В ЛОГИ ВСЁ, ЧТО ПРИШЛО
+                logging.info(f"ОТВЕТ СЕРВЕРА: {data}")
                 
-                # Ищем статус в разных местах ответа
+                # Проверка по разным возможным ключам
                 job_data = data.get("data", {})
                 status = job_data.get("status")
                 
                 if status == "success":
                     image_url = job_data.get("result", {}).get("url")
-                    if image_url:
-                        await message.answer_photo(photo=image_url, caption=f"Готово: {prompt}")
-                        return await msg.delete()
-                    else:
-                        return await msg.edit_text("❌ Ошибка: Статус success, но ссылка на фото пустая.")
-                
-                if status == "failed":
-                    return await msg.edit_text("❌ Генерация сорвалась на стороне API.")
+                    await message.answer_photo(photo=image_url, caption=f"Готово: {prompt}")
+                    return await msg.delete()
+                elif status == "failed":
+                    return await msg.edit_text(f"❌ Ошибка API: {job_data.get('error', 'неизвестно')}")
             
-            await msg.edit_text("⚠️ Превышено время ожидания. Попробуй еще раз.")
-            
+            await msg.edit_text("⚠️ Время вышло. Сервер всё ещё обрабатывает запрос.")
         except Exception as e:
-            logging.error(f"Error: {e}")
-            await msg.edit_text(f"⚠️ Ошибка выполнения: {str(e)}")
+            await msg.edit_text(f"⚠️ Ошибка: {str(e)}")
 
 async def main():
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
+    
