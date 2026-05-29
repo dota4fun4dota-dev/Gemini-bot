@@ -1,41 +1,45 @@
 # -*- coding: utf-8 -*-
-import asyncio
 import os
 import sys
 import io
+
+# Глобальная настройка кодировки до запуска всего остального
+os.environ["PYTHONIOENCODING"] = "UTF-8"
+sys.stdin = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+
+import asyncio
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message
 from aiogram.filters import CommandStart
 from openai import AsyncOpenAI
 
-# Принудительная установка кодировки UTF-8 для вывода в консоль
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-
-# Получаем ключи из настроек Railway (Variables)
+# Получаем переменные из Railway
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-# Инициализация клиентов
 ai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
 @dp.message(CommandStart())
 async def cmd_start(message: Message):
-    await message.answer("Привет! Пиши мне текст или используй /draw [описание] для генерации картинки.")
+    await message.answer("Привет! Я готов. Пиши /draw [описание] для генерации.")
 
 @dp.message(F.text.startswith("/draw"))
 async def draw_handler(message: Message):
     prompt = message.text.replace("/draw", "").strip()
     if not prompt:
-        await message.answer("Пожалуйста, напиши описание. Например: /draw кот в космосе")
+        await message.answer("Укажите описание для картинки.")
         return
     
-    msg = await message.answer("🎨 Генерирую изображение...")
+    msg = await message.answer("🎨 Генерирую...")
     try:
+        # Прямое использование строки как есть (она в Python 3 по умолчанию Unicode)
         response = await ai_client.images.generate(
             model="dall-e-3",
-            prompt=prompt,
+            prompt=str(prompt),
             n=1,
             size="1024x1024"
         )
@@ -43,7 +47,8 @@ async def draw_handler(message: Message):
         await message.answer_photo(photo=image_url)
         await msg.delete()
     except Exception as e:
-        await msg.edit_text(f"❌ Ошибка генерации: {str(e)}")
+        # Если ошибка все еще есть, мы выведем ее тип для отладки
+        await msg.edit_text(f"❌ Ошибка: {str(e)}")
 
 @dp.message(F.text)
 async def text_handler(message: Message):
@@ -59,7 +64,6 @@ async def text_handler(message: Message):
         await message.answer(f"❌ Ошибка: {str(e)}")
 
 async def main():
-    # Очистка очереди (убирает конфликт экземпляров)
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
