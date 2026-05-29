@@ -20,7 +20,7 @@ ai_client = AsyncOpenAI(
     base_url="https://openrouter.ai/api/v1"
 )
 
-# Актуальная бесплатная модель Gemini на OpenRouter
+# Переключено на актуальную бесплатную модель Gemini Flash
 AI_MODEL = "google/gemini-2.5-flash:free" 
 PROVIDER_TOKEN = "" 
 # ========================================================
@@ -92,25 +92,4 @@ def prices_keyboard():
     ])
 
 # === ХЭНДЛЕРЫ ===
-@dp.message(CommandStart())
-async def cmd_start(message: Message):
-    get_user(message.from_user.id)
-    text = f"👋 Привет, {message.from_user.first_name}!\n\nЯ твой личный умный ИИ-помощник нового поколения.\nТы можете отправить мне любой вопрос, попросить написать реферат или код.\n\n⚠️ Без подписки тебе доступно 3 запроса в сутки.\nИспользуй кнопки ниже, чтобы проверить баланс или снять ограничения 👇"
-    await message.answer(text, reply_markup=main_menu_keyboard())
-
-@dp.callback_query(F.data == "my_profile")
-async def process_profile(callback):
-    sub_until, req_date, req_count = get_user(callback.from_user.id)
-    today = datetime.today().strftime('%Y-%m-%d')
-    
-    left_reqs = 3 - req_count if req_date == today else 3
-    if left_reqs < 0: left_reqs = 0
-        
-    status = "❌ Нет подписки"
-    if sub_until:
-        until_dt = datetime.strptime(sub_until, '%Y-%m-%d %H:%M:%S')
-        if until_dt > datetime.now():
-            status = f"🟢 Активна до {until_dt.strftime('%d.%m.%Y %H:%M')}"
-            left_reqs = "♾ Безлимит"
-
-    profile_text = f"📊 Твой профиль:\n\n👤 ID: {callback.from_user.id}\n👑 Статус подписки
+@dp
