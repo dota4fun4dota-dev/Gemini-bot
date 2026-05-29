@@ -62,6 +62,9 @@ async def text_handler(message: Message):
 
 async def main():
     await dp.start_polling(bot)
-
+async def main():
+    # Эта команда очистит очередь сообщений Telegram от всех старых "зависших" запросов
+    await bot.delete_webhook(drop_pending_updates=True) 
+    await dp.start_polling(bot)
 if __name__ == "__main__":
     asyncio.run(main())
