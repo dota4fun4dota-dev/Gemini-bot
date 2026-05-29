@@ -1,6 +1,15 @@
 # -*- coding: utf-8 -*-
 import os
 import asyncio
+import logging
+
+# Добавь это сразу после импортов
+logging.basicConfig(level=logging.INFO)
+
+async def main():
+    print("Бот запущен и ждет сообщений...") # Это должно появиться в логах Railway
+    await bot.delete_webhook(drop_pending_updates=True)
+    await dp.start_polling(bot)
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message
 from aiogram.filters import CommandStart
