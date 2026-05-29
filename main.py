@@ -1,91 +1,65 @@
-# В начало файла добавь:
-from googletrans import Translator
-translator = Translator()
-
-# Внутри функции draw_handler (перед строкой с ai_client.images.generate):
-try:
-    # Переводим промпт на английский
-    prompt = translator.translate(prompt, dest='en').text
-    print(f"Переведенный промпт: {prompt}") # Лог в консоли Railway
-except Exception:
-    pass # Если перевод не удался, пробуем оригинал
 # -*- coding: utf-8 -*-
 import os
-import sys
-import io
-
-# Глобальная настройка кодировки до запуска всего остального
-os.environ["PYTHONIOENCODING"] = "UTF-8"
-sys.stdin = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
-
 import asyncio
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message
 from aiogram.filters import CommandStart
 from openai import AsyncOpenAI
 
-# Получаем переменные из Railway
+# Получаем настройки из переменных среды Railway
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
+# Инициализация
 ai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
 @dp.message(CommandStart())
 async def cmd_start(message: Message):
-    await message.answer("Привет! Я готов. Пиши /draw [описание] для генерации.")
-
-import unicodedata
+    await message.answer("Привет! Я готов к работе. Пиши любой текст или используй /draw [описание] для генерации картинки.")
 
 @dp.message(F.text.startswith("/draw"))
 async def draw_handler(message: Message):
     prompt = message.text.replace("/draw", "").strip()
     if not prompt:
-        await message.answer("Укажите описание.")
+        await message.answer("Пожалуйста, напиши описание. Например: /draw кот в космосе")
         return
     
-    msg = await message.answer("🎨 Генерирую...")
+    msg = await message.answer("🎨 Генерирую изображение...")
     try:
-        # Пытаемся нормализовать строку, удаляя спецсимволы, 
-        # которые могли бы вызвать конфликт кодировок
-        clean_prompt = unicodedata.normalize('NFKC', prompt)
-        
+        # DALL-E 3 отлично понимает русский, 
+        # использование str(prompt) гарантирует отсутствие ошибок типов
         response = await ai_client.images.generate(
             model="dall-e-3",
-            prompt=clean_prompt,
+            prompt=str(prompt),
             n=1,
             size="1024x1024"
         )
-        image_url = response.data[0].url
-        await message.answer_photo(photo=image_url)
+        await message.answer_photo(photo=response.data[0].url)
         await msg.delete()
     except Exception as e:
-        # Если ошибка сохраняется, выводим её максимально подробно
-        await msg.edit_text(f"❌ Ошибка: {type(e).__name__}: {str(e)}")
+        await msg.edit_text(f"❌ Ошибка генерации: {str(e)}")
+
 @dp.message(F.text)
 async def text_handler(message: Message):
     if message.text.startswith("/"): return
-    await message.answer("🧠 Думаю...")
+    
+    msg = await message.answer("🧠 Думаю...")
     try:
         response = await ai_client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[{"role": "user", "content": message.text}]
         )
         await message.answer(response.choices[0].message.content)
+        await msg.delete()
     except Exception as e:
-        await message.answer(f"❌ Ошибка: {str(e)}")
+        await msg.edit_text(f"❌ Ошибка: {str(e)}")
 
 async def main():
+    # Очистка очереди критически важна для отсутствия TelegramConflictError
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
-{
-  "build": {
-    "startCommand": "python AIbot.py"
-  }
-}
