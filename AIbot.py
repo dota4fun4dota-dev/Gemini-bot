@@ -18,7 +18,7 @@ ai_client = AsyncOpenAI(
 )
 
 # ПЕРЕКЛЮЧЕНО НА DEEPSEEK
-AI_MODEL = "deepseek/deepseek-r1:free" 
+AI_MODEL = "deepseek/deepseek-chat:free"
 PROVIDER_TOKEN = "" 
 # ========================================================
 
