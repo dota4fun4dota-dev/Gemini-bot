@@ -15,47 +15,61 @@ dp = Dispatcher()
 
 @dp.message(CommandStart())
 async def start(message: Message):
-    await message.answer("Бот готов. Напиши 'Нарисуй [описание]'.")
+    await message.answer("Бот готов! Пиши 'Нарисуй [описание]'.")
 
 @dp.message(F.text.lower().startswith("нарисуй"))
 async def image_handler(message: Message):
     prompt = message.text.lower().replace("нарисуй", "").strip()
-    msg = await message.answer("⏳ Запускаю...")
+    msg = await message.answer("⏳ Генерирую через Flux-2 Pro...")
     
-    headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
-    payload = {"model": "google/imagen4-fast", "input": {"prompt": prompt}}
+    headers = {
+        "Authorization": f"Bearer {API_KEY}", 
+        "Content-Type": "application/json"
+    }
+    
+    # ИСПОЛЬЗУЕМ Flux-2 Pro
+    payload = {
+        "model": "flux-2/pro-text-to-image",
+        "input": {
+            "prompt": prompt,
+            "aspect_ratio": "1:1"
+        }
+    }
     
     async with httpx.AsyncClient() as client:
         try:
-            # Создание
+            # 1. Отправка задачи
             resp = await client.post(f"{API_BASE}/createTask", json=payload, headers=headers)
             task_json = resp.json()
+            
+            # Логируем ответ для отладки
+            logging.info(f"Ответ сервера: {task_json}")
+            
             task_id = task_json.get("data", {}).get("taskId")
-            
             if not task_id:
-                return await msg.edit_text(f"Ошибка создания: {task_json}")
+                return await msg.edit_text(f"❌ Ошибка создания задачи: {task_json.get('msg')}")
             
-            await msg.edit_text(f"ID задачи: {task_id}. Ожидание...")
+            await msg.edit_text(f"🎨 Задача принята ({task_id}). Жду...")
 
-            # Опрос
+            # 2. Опрос статуса
             for i in range(20):
                 await asyncio.sleep(15)
                 status_resp = await client.get(f"{API_BASE}/recordInfo?taskId={task_id}", headers=headers)
-                data = status_resp.json()
+                data = status_resp.json().get("data", {})
                 
-                # ЛОГИРУЕМ СЫРОЙ ОТВЕТ
-                logging.info(f"СЫРОЙ ОТВЕТ СЕРВЕРА: {data}")
-                
-                # Пытаемся найти результат в любом поле
-                if data and "data" in data and "result" in data["data"]:
-                    url = data["data"]["result"].get("url")
+                state = data.get("state")
+                if state == "success":
+                    url = data.get("result", {}).get("url")
                     if url:
-                        await message.answer_photo(photo=url, caption="Готово!")
+                        await message.answer_photo(photo=url, caption=f"Готово: {prompt}")
                         return await msg.delete()
+                elif state == "fail":
+                    return await msg.edit_text(f"❌ Ошибка: {data.get('failMsg')}")
             
-            await msg.edit_text("Не дождался ответа от сервера.")
+            await msg.edit_text("⚠️ Превышено время ожидания.")
+            
         except Exception as e:
-            await msg.edit_text(f"Ошибка: {e}")
+            await msg.edit_text(f"⚠️ Ошибка: {str(e)}")
 
 async def main():
     await dp.start_polling(bot)
