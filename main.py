@@ -1,12 +1,13 @@
 import os
 import asyncio
 import logging
+import httpx  # Добавили импорт
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message
 from aiogram.filters import CommandStart
 from openai import AsyncOpenAI
 
-# Очистка прокси
+# 1. Удаляем системные переменные прокси, чтобы они не мешали
 for env_var in ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"]:
     if env_var in os.environ:
         del os.environ[env_var]
@@ -18,22 +19,26 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
-client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+
+# 2. Инициализируем клиент с отключенными прокси (http_client=httpx.AsyncClient(proxies=None))
+client = AsyncOpenAI(
+    api_key=OPENAI_API_KEY,
+    http_client=httpx.AsyncClient(proxies=None) 
+)
 
 @dp.message(CommandStart())
 async def cmd_start(message: Message):
-    await message.answer("Привет! Я готов. Пиши /draw [описание] для генерации картинки.")
+    await message.answer("Привет! Я готов. Пиши текст или /draw [описание].")
 
 @dp.message(F.text.startswith("/draw"))
 async def draw_handler(message: Message):
     prompt = message.text.replace("/draw", "").strip()
     if not prompt:
-        await message.answer("Пожалуйста, напиши описание. Например: /draw кот в космосе")
+        await message.answer("Напиши описание: /draw кот в космосе")
         return
     
     msg = await message.answer("🎨 Генерирую...")
     try:
-        # ИСПРАВЛЕННЫЙ БЛОК: все кавычки на месте
         response = await client.images.generate(
             model="dall-e-3",
             prompt=prompt,
@@ -43,7 +48,7 @@ async def draw_handler(message: Message):
         await message.answer_photo(photo=response.data[0].url)
         await msg.delete()
     except Exception as e:
-        await msg.edit_text(f"❌ Ошибка: {str(e)}")
+        await msg.edit_text(f"❌ Ошибка генерации: {str(e)}")
 
 @dp.message(F.text)
 async def text_handler(message: Message):
