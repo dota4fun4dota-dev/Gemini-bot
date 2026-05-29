@@ -24,7 +24,7 @@ async def image_handler(message: Message):
     if not prompt:
         return await message.answer("Укажи описание картинки!")
     
-    msg = await message.answer("⏳ Запускаю Nano Banana 2...")
+    msg = await message.answer("⏳ Создаю задачу в Nano Banana 2...")
     
     headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
     payload = {
@@ -34,30 +34,43 @@ async def image_handler(message: Message):
     
     async with httpx.AsyncClient() as client:
         try:
-            # 1. Создаем задачу
+            # 1. Запрос на создание
             resp = await client.post(f"{API_BASE_URL}/api/v1/jobs/createTask", json=payload, headers=headers)
             if resp.status_code != 200:
-                return await msg.edit_text(f"❌ Ошибка API: {resp.status_code}. Проверь токен и баланс на сайте.")
+                return await msg.edit_text(f"❌ Ошибка создания: {resp.text}")
             
-            task_id = resp.json()["data"]["taskId"]
-            await msg.edit_text("🎨 Задача принята. Ожидаю результат...")
+            task_id = resp.json().get("data", {}).get("taskId")
+            await msg.edit_text(f"🎨 Задача {task_id} принята. Ожидаю готовность...")
             
-            # 2. Опрашиваем статус (Polling)
-            for i in range(20):
+            # 2. Поллинг результата
+            for i in range(30): # Ждем до 150 секунд
                 await asyncio.sleep(5)
                 status_resp = await client.get(f"{API_BASE_URL}/api/v1/jobs/recordInfo?taskId={task_id}", headers=headers)
-                data = status_resp.json().get("data", {})
+                data = status_resp.json()
                 
-                if data.get("status") == "success":
-                    image_url = data.get("result", {}).get("url")
-                    await message.answer_photo(photo=image_url, caption=f"Готово: {prompt}")
-                    return await msg.delete()
-                elif data.get("status") == "failed":
-                    return await msg.edit_text("❌ Ошибка генерации внутри нейросети.")
+                # Логируем для отладки в Railway
+                logging.info(f"DEBUG: Task {task_id} response: {data}")
+                
+                # Ищем статус в разных местах ответа
+                job_data = data.get("data", {})
+                status = job_data.get("status")
+                
+                if status == "success":
+                    image_url = job_data.get("result", {}).get("url")
+                    if image_url:
+                        await message.answer_photo(photo=image_url, caption=f"Готово: {prompt}")
+                        return await msg.delete()
+                    else:
+                        return await msg.edit_text("❌ Ошибка: Статус success, но ссылка на фото пустая.")
+                
+                if status == "failed":
+                    return await msg.edit_text("❌ Генерация сорвалась на стороне API.")
             
-            await msg.edit_text("⚠️ Истекло время ожидания.")
+            await msg.edit_text("⚠️ Превышено время ожидания. Попробуй еще раз.")
+            
         except Exception as e:
-            await msg.edit_text(f"⚠️ Ошибка: {str(e)}")
+            logging.error(f"Error: {e}")
+            await msg.edit_text(f"⚠️ Ошибка выполнения: {str(e)}")
 
 async def main():
     await dp.start_polling(bot)
