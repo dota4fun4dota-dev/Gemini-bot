@@ -1,4 +1,15 @@
 import os
+
+# ПРИНУДИТЕЛЬНО УДАЛЯЕМ ПРОКСИ-ПЕРЕМЕННЫЕ, КОТОРЫЕ ВЫЗЫВАЮТ ОШИБКУ
+if "HTTP_PROXY" in os.environ:
+    del os.environ["HTTP_PROXY"]
+if "HTTPS_PROXY" in os.environ:
+    del os.environ["HTTPS_PROXY"]
+if "ALL_PROXY" in os.environ:
+    del os.environ["ALL_PROXY"]
+
+# ... далее идет инициализация client = AsyncOpenAI(...)
+import os
 import asyncio
 import logging
 from aiogram import Bot, Dispatcher, F
