@@ -12,7 +12,7 @@ GROQ_API_KEY = "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"
 
 ai_client = AsyncOpenAI(api_key=GROQ_API_KEY, base_url="https://api.groq.com/openai/v1")
 AI_MODEL = "llama-3.3-70b-versatile"
-FREE_LIMIT = 5 # Лимит пробных ответов
+FREE_LIMIT = 10 # Увеличено до 10
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=BOT_TOKEN)
@@ -49,16 +49,16 @@ def increment_count(user_id):
 # === ХЭНДЛЕРЫ ===
 @dp.message(CommandStart())
 async def cmd_start(message: Message):
-    await message.answer("👋 Привет! У тебя есть 5 бесплатных запросов к ИИ. После их исчерпания нужно будет купить подписку.")
+    await message.answer("👋 Привет! У тебя есть 10 бесплатных запросов.")
 
 @dp.message(F.text)
 async def handle_ai_request(message: Message):
     count, is_paid = get_user_data(message.from_user.id)
     
-    # Проверка лимитов
+    # Если лимит исчерпан
     if not is_paid and count >= FREE_LIMIT:
         kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="💎 Купить подписку", callback_data="buy")]])
-        await message.answer("⚠️ Твои 5 бесплатных ответов закончились.\nПожалуйста, оплати подписку, чтобы продолжить!", reply_markup=kb)
+        await message.answer("⚠️ Твои бесплатные запросы закончились. Купи подписку, чтобы продолжить!", reply_markup=kb)
         return
 
     status_message = await message.answer("🧠 Думаю...")
@@ -67,9 +67,19 @@ async def handle_ai_request(message: Message):
             model=AI_MODEL,
             messages=[{"role": "user", "content": message.text}]
         )
+        
+        # Обновляем счетчик
         increment_count(message.from_user.id)
+        new_count, _ = get_user_data(message.from_user.id)
+        
+        # Формируем ответ с информацией об остатке
+        left = FREE_LIMIT - new_count
+        ai_response = response.choices[0].message.content
+        final_text = f"{ai_response}\n\n━━━━━━━━━━━━\n📊 Осталось запросов: {max(0, left)}"
+        
         await status_message.delete()
-        await message.answer(response.choices[0].message.content)
+        await message.answer(final_text)
+        
     except Exception as e:
         await status_message.edit_text(f"❌ Ошибка: `{str(e)}`")
 
