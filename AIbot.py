@@ -18,7 +18,7 @@ ai_client = AsyncOpenAI(
 )
 
 # ПЕРЕКЛЮЧЕНО НА DEEPSEEK
-AI_MODEL = "deepseek/deepseek-chat:free"
+AI_MODEL = "google/gemini-2.5-flash:free"
 PROVIDER_TOKEN = "" 
 # ========================================================
 
