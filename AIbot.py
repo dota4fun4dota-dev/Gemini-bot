@@ -19,16 +19,21 @@ async def cmd_start(message: Message):
 
 @dp.message(F.text.startswith("/draw"))
 async def draw_handler(message: Message):
+    # Убираем команду и очищаем от лишних пробелов
     prompt = message.text.replace("/draw", "").strip()
+    
     if not prompt:
-        await message.answer("Напиши описание: /draw кот в космосе")
+        await message.answer("Напиши описание, например: `/draw кот в космосе`")
         return
     
     msg = await message.answer("🎨 Генерирую изображение через DALL-E 3...")
+    
     try:
+        # OpenAI API автоматически понимает UTF-8, 
+        # но если ошибка вылезает до него — значит, мы неверно формируем данные
         response = await ai_client.images.generate(
             model="dall-e-3",
-            prompt=prompt,
+            prompt=prompt.encode('utf-8').decode('utf-8'), # Принудительная работа с UTF-8
             n=1,
             size="1024x1024"
         )
@@ -36,7 +41,8 @@ async def draw_handler(message: Message):
         await message.answer_photo(photo=image_url)
         await msg.delete()
     except Exception as e:
-        await msg.edit_text(f"❌ Ошибка: {e}")
+        # Выводим ошибку, чтобы понять, на каком этапе она падает
+        await msg.edit_text(f"❌ Ошибка генерации: {str(e)}")
 
 @dp.message(F.text)
 async def text_handler(message: Message):
