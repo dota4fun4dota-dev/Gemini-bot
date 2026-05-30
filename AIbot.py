@@ -48,7 +48,58 @@ async def set_model(callback: CallbackQuery):
     user_models[callback.from_user.id] = MODELS.get(model_key, MODELS["flux"])
     await callback.message.answer(f"✅ Модель успешно изменена на: **{model_key.upper()}**", parse_mode="Markdown")
     await callback.answer()
+# Добавь этот блок в свой основной файл main.py
+@dp.message(F.photo)
+async def image_to_image_handler(message: Message):
+    # 1. Скачиваем фото из Telegram
+    file_id = message.photo[-1].file_id
+    file = await bot.get_file(file_id)
+    file_path = file.file_path
+    file_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
+    
+    # 2. Получаем промпт из подписи (caption) к фото
+    prompt = message.caption.replace("переделай", "").strip() if message.caption else "make it more artistic"
+    model = user_models.get(message.from_user.id, MODELS["flux"])
+    
+    msg = await message.answer("⏳ Обрабатываю ваше фото...")
 
+    # 3. Формируем запрос с параметром image_url (структура зависит от модели)
+    payload = {
+        "model": "flux-2/pro-image-to-image", # Используем модель для Img2Img
+        "input": {
+            "prompt": prompt,
+            "image_url": file_url,
+            "aspect_ratio": "1:1"
+        }
+    }
+    
+    headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
+    
+    async with httpx.AsyncClient() as client:
+        try:
+            resp = await client.post(f"{API_BASE}/createTask", json=payload, headers=headers)
+            task_id = resp.json().get("data", {}).get("taskId")
+            
+            if not task_id:
+                return await msg.edit_text(f"Ошибка Img2Img: {resp.json()}")
+
+            # Цикл ожидания такой же, как в текстовой генерации
+            await msg.edit_text("🎨 Задача принята. Жду результат...")
+            for i in range(20):
+                await asyncio.sleep(15)
+                status_resp = await client.get(f"{API_BASE}/recordInfo?taskId={task_id}", headers=headers)
+                data = status_resp.json().get("data", {})
+                
+                # Парсим URL (аналогично текстовой генерации)
+                if data.get("resultJson"):
+                    res_obj = json.loads(data["resultJson"])
+                    url = res_obj.get("resultUrls", [None])[0]
+                    if url:
+                        await message.answer_photo(photo=url, caption="✨ Готово!")
+                        return await msg.delete()
+        except Exception as e:
+            await msg.edit_text(f"⚠️ Ошибка: {str(e)}")
+            
 @dp.message(F.text.lower().startswith("нарисуй"))
 async def image_handler(message: Message):
     prompt = message.text.lower().replace("нарисуй", "").strip()
