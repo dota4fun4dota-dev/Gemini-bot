@@ -20,39 +20,40 @@ async def start(message: Message):
 @dp.message(F.text.lower().startswith("нарисуй"))
 async def image_handler(message: Message):
     prompt = message.text.lower().replace("нарисуй", "").strip()
-    msg = await message.answer("⏳ Генерирую через Flux-2 Pro...")
+    if not prompt:
+        return await message.answer("Пожалуйста, напиши описание.")
+    
+    msg = await message.answer("⏳ Отправляю запрос во Flux-2 Pro...")
     
     headers = {
         "Authorization": f"Bearer {API_KEY}", 
         "Content-Type": "application/json"
     }
     
-    # ИСПОЛЬЗУЕМ Flux-2 Pro
+    # ФИНАЛЬНАЯ СТРУКТУРА ДЛЯ FLUX-2
     payload = {
         "model": "flux-2/pro-text-to-image",
         "input": {
             "prompt": prompt,
-            "aspect_ratio": "1:1"
+            "aspect_ratio": "1:1",
+            "resolution": "1K"
         }
     }
     
     async with httpx.AsyncClient() as client:
         try:
-            # 1. Отправка задачи
             resp = await client.post(f"{API_BASE}/createTask", json=payload, headers=headers)
             task_json = resp.json()
-            
-            # Логируем ответ для отладки
             logging.info(f"Ответ сервера: {task_json}")
             
             task_id = task_json.get("data", {}).get("taskId")
             if not task_id:
-                return await msg.edit_text(f"❌ Ошибка создания задачи: {task_json.get('msg')}")
+                return await msg.edit_text(f"❌ Ошибка создания: {task_json.get('msg')}")
             
-            await msg.edit_text(f"🎨 Задача принята ({task_id}). Жду...")
+            await msg.edit_text(f"🎨 Задача принята ({task_id}). Жду генерацию...")
 
-            # 2. Опрос статуса
-            for i in range(20):
+            # Опрос статуса
+            for i in range(25):
                 await asyncio.sleep(15)
                 status_resp = await client.get(f"{API_BASE}/recordInfo?taskId={task_id}", headers=headers)
                 data = status_resp.json().get("data", {})
@@ -64,10 +65,9 @@ async def image_handler(message: Message):
                         await message.answer_photo(photo=url, caption=f"Готово: {prompt}")
                         return await msg.delete()
                 elif state == "fail":
-                    return await msg.edit_text(f"❌ Ошибка: {data.get('failMsg')}")
+                    return await msg.edit_text(f"❌ Ошибка генерации: {data.get('failMsg')}")
             
-            await msg.edit_text("⚠️ Превышено время ожидания.")
-            
+            await msg.edit_text("⚠️ Время ожидания вышло.")
         except Exception as e:
             await msg.edit_text(f"⚠️ Ошибка: {str(e)}")
 
