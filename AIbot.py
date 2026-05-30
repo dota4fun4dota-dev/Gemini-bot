@@ -15,6 +15,12 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
+# Принудительно очищаем очередь сообщений при запуске
+@dp.startup()
+async def on_startup():
+    logging.info("Очистка старых обновлений...")
+    await bot.delete_webhook(drop_pending_updates=True)
+
 async def send_long_message(message: Message, text: str):
     for i in range(0, len(text), 4000):
         await message.answer(text[i:i+4000])
@@ -34,18 +40,14 @@ async def handle_photo(message: Message):
     async with httpx.AsyncClient() as client:
         try:
             resp = await client.post(f"{API_BASE}/createTask", json=payload, headers=headers)
-            if resp.status_code != 200 or not resp.text:
-                return await msg.edit_text(f"Ошибка API (код {resp.status_code}): {resp.text}")
-            
             task_id = resp.json().get("data", {}).get("taskId")
-            if not task_id: return await msg.edit_text("Ошибка: taskId не получен")
+            if not task_id: return await msg.edit_text("Ошибка API")
             
             for i in range(20):
                 await asyncio.sleep(15)
                 res = await client.get(f"{API_BASE}/recordInfo?taskId={task_id}", headers=headers)
-                if res.status_code == 200 and res.text:
-                    url = json.loads(res.json().get("data", {}).get("resultJson", "{}")).get("resultUrls", [None])[0]
-                    if url: await message.answer_photo(photo=url, caption="✨ Готово!"); return await msg.delete()
+                url = json.loads(res.json().get("data", {}).get("resultJson", "{}")).get("resultUrls", [None])[0]
+                if url: await message.answer_photo(photo=url, caption="✨ Готово!"); return await msg.delete()
         except Exception as e: await msg.edit_text(f"Ошибка: {str(e)}")
 
 @dp.message(F.text)
@@ -55,23 +57,15 @@ async def handle_text(message: Message):
         prompt = message.text.lower().replace("нарисуй", "").strip()
         payload = {"model": "flux-2/pro-text-to-image", "input": {"prompt": prompt, "aspect_ratio": "1:1"}}
         headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
-        
         async with httpx.AsyncClient() as client:
             resp = await client.post(f"{API_BASE}/createTask", json=payload, headers=headers)
-            if resp.status_code != 200 or not resp.text:
-                return await msg.edit_text(f"Ошибка API (код {resp.status_code}): {resp.text}")
-            
             task_id = resp.json().get("data", {}).get("taskId")
-            if not task_id: return await msg.edit_text("Ошибка: не удалось создать задачу")
-            
             await msg.edit_text("Задача принята. Ожидайте...")
             for i in range(20):
                 await asyncio.sleep(15)
                 res = await client.get(f"{API_BASE}/recordInfo?taskId={task_id}", headers=headers)
-                if res.status_code == 200 and res.text:
-                    url = json.loads(res.json().get("data", {}).get("resultJson", "{}")).get("resultUrls", [None])[0]
-                    if url: await message.answer_photo(photo=url, caption=f"Готово: {prompt}"); return await msg.delete()
-            await msg.edit_text("⚠️ Время ожидания вышло.")
+                url = json.loads(res.json().get("data", {}).get("resultJson", "{}")).get("resultUrls", [None])[0]
+                if url: await message.answer_photo(photo=url, caption=f"Готово: {prompt}"); return await msg.delete()
     else:
         msg = await message.answer("🤔 Думаю...")
         headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
@@ -79,12 +73,9 @@ async def handle_text(message: Message):
         async with httpx.AsyncClient(timeout=60.0) as client:
             try:
                 resp = await client.post(CHAT_API_URL, json=payload, headers=headers)
-                if resp.status_code == 200 and resp.text:
-                    answer = resp.json().get("choices", [{}])[0].get("message", {}).get("content", "Нет ответа.")
-                    await msg.delete()
-                    await send_long_message(message, answer)
-                else:
-                    await msg.edit_text(f"Ошибка API {resp.status_code}: {resp.text[:100]}")
+                answer = resp.json().get("choices", [{}])[0].get("message", {}).get("content", "Нет ответа.")
+                await msg.delete()
+                await send_long_message(message, answer)
             except Exception as e:
                 await msg.edit_text(f"Ошибка: {str(e)}")
 
