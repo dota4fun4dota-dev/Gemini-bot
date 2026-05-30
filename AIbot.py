@@ -9,15 +9,11 @@ from aiogram.filters import CommandStart
 BOT_TOKEN = "8980453196:AAGiMgy8bohMdOM6Z3nGpmos_ysCr2W_-Us"
 API_KEY = "5911714ce3ffbc56f7064a9ad0708e0c" 
 API_BASE = "https://api.kie.ai/api/v1/jobs"
-# Путь к чат-модели из твоего скриншота
 CHAT_API_URL = "https://api.kie.ai/gemini-3.1-pro/v1/chat/completions"
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
-
-user_models = {}
-MODELS = {"flux": "flux-2/pro-text-to-image", "imagen": "google/imagen4-fast"}
 
 @dp.message(CommandStart())
 async def start(message: Message):
@@ -28,19 +24,13 @@ async def handle_photo(message: Message):
     msg = await message.answer("⏳ Обрабатываю изображение...")
     file = await bot.get_file(message.photo[-1].file_id)
     photo_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file.file_path}"
-    
-    payload = {
-        "model": "grok-imagine/image-to-image", 
-        "input": {"prompt": message.caption or "Enhance", "image_urls": [photo_url]}
-    }
+    payload = {"model": "grok-imagine/image-to-image", "input": {"prompt": message.caption or "Enhance", "image_urls": [photo_url]}}
     headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
-    
     async with httpx.AsyncClient() as client:
         try:
             resp = await client.post(f"{API_BASE}/createTask", json=payload, headers=headers)
             if resp.status_code != 200: return await msg.edit_text(f"Ошибка API: {resp.text}")
             task_id = resp.json().get("data", {}).get("taskId")
-            
             for i in range(15):
                 await asyncio.sleep(10)
                 data = (await client.get(f"{API_BASE}/recordInfo?taskId={task_id}", headers=headers)).json().get("data", {})
@@ -51,7 +41,6 @@ async def handle_photo(message: Message):
 
 @dp.message(F.text)
 async def handle_text(message: Message):
-    # ПУНКТ 1: Рисование
     if message.text.lower().startswith("нарисуй"):
         msg = await message.answer("🎨 Рисую...")
         prompt = message.text.lower().replace("нарисуй", "").strip()
@@ -60,24 +49,20 @@ async def handle_text(message: Message):
         async with httpx.AsyncClient() as client:
             resp = await client.post(f"{API_BASE}/createTask", json=payload, headers=headers)
             await msg.edit_text("Задача принята. Жду результат...")
-            # (Тут работает цикл ожидания аналогично коду выше)
-            
-    # ПУНКТ 3: Чат-модель
     else:
         msg = await message.answer("🤔 Думаю...")
         headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
-        payload = {"messages": [{"role": "user", "content": [{"type": "text", "text": message.text}]}]}
-        
-        async with httpx.AsyncClient() as client:
+        payload = {"messages": [{"role": "user", "content": message.text}]}
+        async with httpx.AsyncClient(timeout=30.0) as client:
             try:
                 resp = await client.post(CHAT_API_URL, json=payload, headers=headers)
                 if resp.status_code == 200:
                     answer = resp.json().get("choices", [{}])[0].get("message", {}).get("content", "Нет ответа.")
                     await msg.edit_text(answer)
                 else:
-                    await msg.edit_text(f"Ошибка API {resp.status_code}: {resp.text}")
+                    await msg.edit_text(f"API Error {resp.status_code}: {resp.text[:100]}")
             except Exception as e:
-                await msg.edit_text(f"Ошибка подключения к Gemini: {str(e)}")
+                await msg.edit_text(f"Connection error: {type(e).__name__}: {str(e)}")
 
 async def main(): await dp.start_polling(bot)
 if __name__ == "__main__": asyncio.run(main())
