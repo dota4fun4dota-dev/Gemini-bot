@@ -21,13 +21,13 @@ async def on_startup():
 
 @dp.message(CommandStart())
 async def start(message: Message):
-    await message.answer("Я снова в строю! Могу рисовать (начни с 'нарисуй...') или общаться.")
+    await message.answer("Бот запущен. Напиши 'нарисуй [текст]' или просто общайся со мной.")
 
 @dp.message(F.text)
-async def handle_all_messages(message: Message):
-    # Логика РИСОВАНИЯ
+async def handle_text(message: Message):
+    # ЛОГИКА РИСОВАНИЯ
     if message.text.lower().startswith("нарисуй"):
-        msg = await message.answer("🎨 Генерирую...")
+        msg = await message.answer("🎨 Рисую...")
         prompt = message.text.lower().replace("нарисуй", "").strip()
         payload = {"model": "flux-2/pro-text-to-image", "input": {"prompt": prompt, "aspect_ratio": "1:1"}}
         headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
@@ -35,28 +35,28 @@ async def handle_all_messages(message: Message):
         async with httpx.AsyncClient() as client:
             try:
                 resp = await client.post(f"{API_BASE}/createTask", json=payload, headers=headers)
+                if not resp.text: return await msg.edit_text("Ошибка: API вернуло пустой ответ.")
                 data = resp.json()
-                # Безопасное извлечение taskId
-                task_id = data.get("data", {}).get("taskId") if isinstance(data, dict) else None
                 
-                if not task_id:
-                    return await msg.edit_text("Ошибка: API не вернуло ID задачи.")
-
-                await msg.edit_text("Задача в очереди, жду результат...")
+                if not isinstance(data, dict) or "data" not in data:
+                    return await msg.edit_text(f"Ошибка API: {str(data)[:50]}")
+                
+                task_id = data["data"].get("taskId")
+                if not task_id: return await msg.edit_text("Ошибка: taskId не найден.")
+                
+                await msg.edit_text("Задача принята. Ожидайте...")
                 for i in range(20):
                     await asyncio.sleep(10)
                     res = await client.get(f"{API_BASE}/recordInfo?taskId={task_id}", headers=headers)
                     res_data = res.json()
-                    # Безопасное извлечение URL
-                    result_json_str = res_data.get("data", {}).get("resultJson") if isinstance(res_data, dict) else None
-                    if result_json_str:
-                        url = json.loads(result_json_str).get("resultUrls", [None])[0]
+                    if res_data and isinstance(res_data, dict) and res_data.get("data", {}).get("resultJson"):
+                        url = json.loads(res_data["data"]["resultJson"]).get("resultUrls", [None])[0]
                         if url: await message.answer_photo(photo=url, caption="✨ Готово!"); return await msg.delete()
-                await msg.edit_text("Время вышло.")
+                await msg.edit_text("Время ожидания вышло.")
             except Exception as e:
                 await msg.edit_text(f"Ошибка рисования: {str(e)}")
 
-    # Логика ОБЩЕНИЯ
+    # ЛОГИКА ОБЩЕНИЯ
     else:
         msg = await message.answer("🤔 Думаю...")
         headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
@@ -65,18 +65,5 @@ async def handle_all_messages(message: Message):
         async with httpx.AsyncClient(timeout=60.0) as client:
             try:
                 resp = await client.post(CHAT_API_URL, json=payload, headers=headers)
+                if not resp.text: return await msg.edit_text("Ошибка: API вернуло пустоту.")
                 data = resp.json()
-                if isinstance(data, dict) and "choices" in data:
-                    answer = data["choices"][0]["message"]["content"]
-                    await msg.delete()
-                    await message.answer(answer)
-                else:
-                    await msg.edit_text("Не удалось получить ответ от модели.")
-            except Exception as e:
-                await msg.edit_text(f"Ошибка чата: {str(e)}")
-
-async def main():
-    await dp.start_polling(bot)
-
-if __name__ == "__main__":
-    asyncio.run(main())
