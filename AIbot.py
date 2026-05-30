@@ -52,8 +52,25 @@ async def handle_text(message: Message):
         payload = {"model": "flux-2/pro-text-to-image", "input": {"prompt": prompt, "aspect_ratio": "1:1"}}
         headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
         async with httpx.AsyncClient() as client:
-            await client.post(f"{API_BASE}/createTask", json=payload, headers=headers)
-            await msg.edit_text("Задача принята. Жду результат...")
+            resp = await client.post(f"{API_BASE}/createTask", json=payload, headers=headers)
+            task_id = resp.json().get("data", {}).get("taskId")
+            await msg.edit_text("Задача принята. Ожидайте...")
+
+            # --- ВОССТАНОВЛЕННЫЙ ЦИКЛ ОЖИДАНИЯ (ИЗ БЭКАПА) ---
+            for i in range(20):
+                await asyncio.sleep(15)
+                status_resp = await client.get(f"{API_BASE}/recordInfo?taskId={task_id}", headers=headers)
+                data = status_resp.json().get("data", {})
+                
+                if data.get("resultJson"):
+                    res_obj = json.loads(data["resultJson"])
+                    url = res_obj.get("resultUrls", [None])[0]
+                    if url:
+                        await message.answer_photo(photo=url, caption=f"Готово: {prompt}")
+                        return await msg.delete()
+            await msg.edit_text("⚠️ Ошибка или время вышло.")
+            # ------------------------------------------------
+
     else:
         msg = await message.answer("🤔 Думаю...")
         headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
