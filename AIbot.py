@@ -34,14 +34,18 @@ async def handle_photo(message: Message):
     async with httpx.AsyncClient() as client:
         try:
             resp = await client.post(f"{API_BASE}/createTask", json=payload, headers=headers)
+            if resp.status_code != 200 or not resp.text:
+                return await msg.edit_text(f"Ошибка API (код {resp.status_code}): {resp.text}")
+            
             task_id = resp.json().get("data", {}).get("taskId")
-            if not task_id: return await msg.edit_text("Ошибка API (нет taskId)")
+            if not task_id: return await msg.edit_text("Ошибка: taskId не получен")
             
             for i in range(20):
                 await asyncio.sleep(15)
                 res = await client.get(f"{API_BASE}/recordInfo?taskId={task_id}", headers=headers)
-                url = json.loads(res.json().get("data", {}).get("resultJson", "{}")).get("resultUrls", [None])[0]
-                if url: await message.answer_photo(photo=url, caption="✨ Готово!"); return await msg.delete()
+                if res.status_code == 200 and res.text:
+                    url = json.loads(res.json().get("data", {}).get("resultJson", "{}")).get("resultUrls", [None])[0]
+                    if url: await message.answer_photo(photo=url, caption="✨ Готово!"); return await msg.delete()
         except Exception as e: await msg.edit_text(f"Ошибка: {str(e)}")
 
 @dp.message(F.text)
@@ -54,15 +58,20 @@ async def handle_text(message: Message):
         
         async with httpx.AsyncClient() as client:
             resp = await client.post(f"{API_BASE}/createTask", json=payload, headers=headers)
-            task_id = resp.json().get("data", {}).get("taskId")
-            await msg.edit_text("Задача принята. Ожидайте...")
+            if resp.status_code != 200 or not resp.text:
+                return await msg.edit_text(f"Ошибка API (код {resp.status_code}): {resp.text}")
             
+            task_id = resp.json().get("data", {}).get("taskId")
+            if not task_id: return await msg.edit_text("Ошибка: не удалось создать задачу")
+            
+            await msg.edit_text("Задача принята. Ожидайте...")
             for i in range(20):
                 await asyncio.sleep(15)
                 res = await client.get(f"{API_BASE}/recordInfo?taskId={task_id}", headers=headers)
-                url = json.loads(res.json().get("data", {}).get("resultJson", "{}")).get("resultUrls", [None])[0]
-                if url: await message.answer_photo(photo=url, caption=f"Готово: {prompt}"); return await msg.delete()
-            await msg.edit_text("⚠️ Ошибка или время вышло.")
+                if res.status_code == 200 and res.text:
+                    url = json.loads(res.json().get("data", {}).get("resultJson", "{}")).get("resultUrls", [None])[0]
+                    if url: await message.answer_photo(photo=url, caption=f"Готово: {prompt}"); return await msg.delete()
+            await msg.edit_text("⚠️ Время ожидания вышло.")
     else:
         msg = await message.answer("🤔 Думаю...")
         headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
@@ -70,9 +79,12 @@ async def handle_text(message: Message):
         async with httpx.AsyncClient(timeout=60.0) as client:
             try:
                 resp = await client.post(CHAT_API_URL, json=payload, headers=headers)
-                answer = resp.json().get("choices", [{}])[0].get("message", {}).get("content", "Нет ответа.")
-                await msg.delete()
-                await send_long_message(message, answer)
+                if resp.status_code == 200 and resp.text:
+                    answer = resp.json().get("choices", [{}])[0].get("message", {}).get("content", "Нет ответа.")
+                    await msg.delete()
+                    await send_long_message(message, answer)
+                else:
+                    await msg.edit_text(f"Ошибка API {resp.status_code}: {resp.text[:100]}")
             except Exception as e:
                 await msg.edit_text(f"Ошибка: {str(e)}")
 
