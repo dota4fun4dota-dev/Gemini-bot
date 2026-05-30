@@ -21,7 +21,7 @@ async def on_startup():
 
 @dp.message(CommandStart())
 async def start(message: Message):
-    await message.answer("Бот запущен. Напиши 'нарисуй [текст]' или просто общайся со мной.")
+    await message.answer("Бот готов. Напиши 'нарисуй [текст]' или просто общайся.")
 
 @dp.message(F.text)
 async def handle_text(message: Message):
@@ -35,18 +35,20 @@ async def handle_text(message: Message):
         async with httpx.AsyncClient() as client:
             try:
                 resp = await client.post(f"{API_BASE}/createTask", json=payload, headers=headers)
-                if not resp.text: 
-                    await msg.edit_text("Ошибка: API вернуло пустой ответ.")
+                
+                # Добавлена проверка на пустое тело и код ответа
+                if resp.status_code != 200 or not resp.text:
+                    await msg.edit_text(f"Ошибка API (код {resp.status_code}): сервер ответил пустотой.")
                     return
+
                 data = resp.json()
-                
-                if not isinstance(data, dict) or "data" not in data:
-                    await msg.edit_text(f"Ошибка API: {str(data)[:50]}")
+                if data is None or not isinstance(data, dict):
+                    await msg.edit_text("Ошибка: API вернуло некорректный формат данных.")
                     return
-                
-                task_id = data["data"].get("taskId")
+
+                task_id = data.get("data", {}).get("taskId")
                 if not task_id: 
-                    await msg.edit_text("Ошибка: taskId не найден.")
+                    await msg.edit_text(f"Ошибка: taskId не найден. Ответ: {str(data)[:50]}")
                     return
                 
                 await msg.edit_text("Задача принята. Ожидайте...")
@@ -54,15 +56,18 @@ async def handle_text(message: Message):
                     await asyncio.sleep(10)
                     res = await client.get(f"{API_BASE}/recordInfo?taskId={task_id}", headers=headers)
                     res_data = res.json()
-                    if res_data and isinstance(res_data, dict) and res_data.get("data", {}).get("resultJson"):
-                        url = json.loads(res_data["data"]["resultJson"]).get("resultUrls", [None])[0]
-                        if url: 
-                            await message.answer_photo(photo=url, caption="✨ Готово!")
-                            await msg.delete()
-                            return
+                    
+                    if res_data and isinstance(res_data, dict):
+                        result_str = res_data.get("data", {}).get("resultJson")
+                        if result_str:
+                            url = json.loads(result_str).get("resultUrls", [None])[0]
+                            if url: 
+                                await message.answer_photo(photo=url, caption="✨ Готово!")
+                                await msg.delete()
+                                return
                 await msg.edit_text("Время ожидания вышло.")
             except Exception as e:
-                await msg.edit_text(f"Ошибка рисования: {str(e)}")
+                await msg.edit_text(f"Ошибка рисования: {type(e).__name__} - {str(e)}")
 
     # ЛОГИКА ОБЩЕНИЯ
     else:
@@ -73,17 +78,17 @@ async def handle_text(message: Message):
         async with httpx.AsyncClient(timeout=60.0) as client:
             try:
                 resp = await client.post(CHAT_API_URL, json=payload, headers=headers)
-                if not resp.text: 
-                    await msg.edit_text("Ошибка: API вернуло пустоту.")
+                if resp.status_code != 200 or not resp.text:
+                    await msg.edit_text("Ошибка: ответ от модели пуст.")
                     return
-                data = resp.json()
                 
+                data = resp.json()
                 if isinstance(data, dict) and "choices" in data:
                     answer = data["choices"][0]["message"]["content"]
                     await msg.delete()
                     await message.answer(answer)
                 else:
-                    await msg.edit_text(f"Ошибка чата: {str(data)[:50]}")
+                    await msg.edit_text("Ошибка формата ответа ИИ.")
             except Exception as e:
                 await msg.edit_text(f"Ошибка общения: {str(e)}")
 
