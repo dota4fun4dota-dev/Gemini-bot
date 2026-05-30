@@ -35,7 +35,7 @@ async def handle_photo(message: Message):
         try:
             resp = await client.post(f"{API_BASE}/createTask", json=payload, headers=headers)
             data_resp = resp.json() if resp.text else {}
-            if resp.status_code != 200 or not data_resp: 
+            if resp.status_code != 200 or data_resp is None: 
                 return await msg.edit_text(f"Ошибка API: {resp.text}")
             
             task_id = data_resp.get("data", {}).get("taskId")
@@ -44,7 +44,8 @@ async def handle_photo(message: Message):
             for i in range(15):
                 await asyncio.sleep(10)
                 res = await client.get(f"{API_BASE}/recordInfo?taskId={task_id}", headers=headers)
-                res_data = res.json().get("data", {})
+                res_data = res.json() if res.text else {}
+                res_data = res_data.get("data", {}) if res_data else {}
                 if res_data.get("resultJson"):
                     url = json.loads(res_data["resultJson"]).get("resultUrls", [None])[0]
                     if url: await message.answer_photo(photo=url, caption="✨ Готово!"); return await msg.delete()
@@ -62,16 +63,18 @@ async def handle_text(message: Message):
             resp = await client.post(f"{API_BASE}/createTask", json=payload, headers=headers)
             data_resp = resp.json() if resp.text else {}
             
-            if resp.status_code != 200 or not data_resp:
+            if resp.status_code != 200 or data_resp is None:
                 return await msg.edit_text(f"Ошибка API: {resp.text}")
             
             task_id = data_resp.get("data", {}).get("taskId")
-            await msg.edit_text("Задача принята. Ожидайте...")
+            if not task_id: return await msg.edit_text("Не удалось создать задачу.")
             
+            await msg.edit_text("Задача принята. Ожидайте...")
             for i in range(20):
                 await asyncio.sleep(15)
                 res = await client.get(f"{API_BASE}/recordInfo?taskId={task_id}", headers=headers)
-                res_data = res.json().get("data", {})
+                res_data = res.json() if res.text else {}
+                res_data = res_data.get("data", {}) if res_data else {}
                 if res_data.get("resultJson"):
                     url = json.loads(res_data["resultJson"]).get("resultUrls", [None])[0]
                     if url: await message.answer_photo(photo=url, caption=f"Готово: {prompt}"); return await msg.delete()
@@ -84,7 +87,7 @@ async def handle_text(message: Message):
             try:
                 resp = await client.post(CHAT_API_URL, json=payload, headers=headers)
                 data_resp = resp.json() if resp.text else {}
-                if resp.status_code == 200:
+                if resp.status_code == 200 and data_resp:
                     answer = data_resp.get("choices", [{}])[0].get("message", {}).get("content", "Нет ответа.")
                     await msg.delete()
                     await send_long_message(message, answer)
