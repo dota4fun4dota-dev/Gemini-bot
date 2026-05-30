@@ -3,7 +3,7 @@ import logging
 import httpx
 import json
 from aiogram import Bot, Dispatcher, F
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from aiogram.types import Message
 from aiogram.filters import CommandStart
 
 BOT_TOKEN = "8980453196:AAGiMgy8bohMdOM6Z3nGpmos_ysCr2W_-Us"
@@ -14,6 +14,11 @@ CHAT_API_URL = "https://api.kie.ai/gemini-3.1-pro/v1/chat/completions"
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
+
+# Функция для отправки длинных сообщений кусками
+async def send_long_message(message: Message, text: str):
+    for i in range(0, len(text), 4000):
+        await message.answer(text[i:i+4000])
 
 @dp.message(CommandStart())
 async def start(message: Message):
@@ -47,18 +52,19 @@ async def handle_text(message: Message):
         payload = {"model": "flux-2/pro-text-to-image", "input": {"prompt": prompt, "aspect_ratio": "1:1"}}
         headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
         async with httpx.AsyncClient() as client:
-            resp = await client.post(f"{API_BASE}/createTask", json=payload, headers=headers)
+            await client.post(f"{API_BASE}/createTask", json=payload, headers=headers)
             await msg.edit_text("Задача принята. Жду результат...")
     else:
         msg = await message.answer("🤔 Думаю...")
         headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
         payload = {"messages": [{"role": "user", "content": message.text}]}
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=60.0) as client:
             try:
                 resp = await client.post(CHAT_API_URL, json=payload, headers=headers)
                 if resp.status_code == 200:
                     answer = resp.json().get("choices", [{}])[0].get("message", {}).get("content", "Нет ответа.")
-                    await msg.edit_text(answer)
+                    await msg.delete() # Удаляем "🤔 Думаю..."
+                    await send_long_message(message, answer) # Отправляем длинный текст
                 else:
                     await msg.edit_text(f"API Error {resp.status_code}: {resp.text[:100]}")
             except Exception as e:
