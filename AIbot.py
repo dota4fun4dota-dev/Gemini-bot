@@ -20,6 +20,9 @@ async def start(message: Message):
 @dp.message(F.text.lower().startswith("нарисуй"))
 async def image_handler(message: Message):
     prompt = message.text.lower().replace("нарисуй", "").strip()
+    if not prompt:
+        return await message.answer("Пожалуйста, введи описание после слова 'Нарисуй'.")
+    
     msg = await message.answer("⏳ Создаю задачу...")
     
     headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
@@ -29,33 +32,42 @@ async def image_handler(message: Message):
     }
     
     async with httpx.AsyncClient() as client:
-        resp = await client.post(f"{API_BASE}/createTask", json=payload, headers=headers)
-        task_id = resp.json().get("data", {}).get("TaskId")
-        
-        if not task_id:
-            return await msg.edit_text(f"Ошибка: {resp.json()}")
-        
-        await msg.edit_text(f"🎨 Задача принята ({task_id}). Жду результат...")
+        try:
+            # 1. Создание
+            resp = await client.post(f"{API_BASE}/createTask", json=payload, headers=headers)
+            json_resp = resp.json()
+            
+            # ВАЖНО: используем 'taskId' (с маленькой буквы), как в логах сервера
+            data_body = json_resp.get("data", {})
+            task_id = data_body.get("taskId") or data_body.get("TaskId")
+            
+            if not task_id:
+                return await msg.edit_text(f"Ошибка API: {json_resp}")
+            
+            await msg.edit_text(f"🎨 Задача принята ({task_id}). Жду результат...")
 
-        for i in range(20):
-            await asyncio.sleep(15)
-            status_resp = await client.get(f"{API_BASE}/recordInfo?taskId={task_id}", headers=headers)
-            data = status_resp.json()
-            
-            # ВАЖНО: Смотрим, что пришло от recordInfo
-            logging.info(f"ОТВЕТ RECORDINFO: {data}")
-            
-            # Проверяем разные варианты, где может лежать картинка
-            res_data = data.get("data", {})
-            url = res_data.get("result", {}).get("url") or res_data.get("output", {}).get("url")
-            
-            if url:
-                await message.answer_photo(photo=url, caption=f"Готово: {prompt}")
-                return await msg.delete()
-            elif res_data.get("state") == "fail":
-                return await msg.edit_text(f"Ошибка генерации: {res_data.get('failMsg')}")
+            # 2. Опрос
+            for i in range(20):
+                await asyncio.sleep(15)
+                status_resp = await client.get(f"{API_BASE}/recordInfo?taskId={task_id}", headers=headers)
+                data = status_resp.json().get("data", {})
+                
+                logging.info(f"ОТВЕТ RECORDINFO: {data}")
+                
+                # Ищем URL в разных местах ответа
+                url = data.get("result", {}).get("url") or data.get("output", {}).get("url")
+                state = data.get("state")
+                
+                if url:
+                    await message.answer_photo(photo=url, caption=f"Готово: {prompt}")
+                    return await msg.delete()
+                elif state == "fail":
+                    return await msg.edit_text(f"Ошибка генерации: {data.get('failMsg', 'unknown')}")
 
-        await msg.edit_text("⚠️ Сервер не прислал картинку вовремя.")
+            await msg.edit_text("⚠️ Время вышло, картинка еще не готова.")
+        except Exception as e:
+            logging.error(f"Критическая ошибка: {e}")
+            await msg.edit_text(f"⚠️ Ошибка: {str(e)}")
 
 async def main():
     await dp.start_polling(bot)
