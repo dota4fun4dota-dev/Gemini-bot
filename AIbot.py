@@ -35,14 +35,19 @@ async def handle_text(message: Message):
         async with httpx.AsyncClient() as client:
             try:
                 resp = await client.post(f"{API_BASE}/createTask", json=payload, headers=headers)
-                if not resp.text: return await msg.edit_text("Ошибка: API вернуло пустой ответ.")
+                if not resp.text: 
+                    await msg.edit_text("Ошибка: API вернуло пустой ответ.")
+                    return
                 data = resp.json()
                 
                 if not isinstance(data, dict) or "data" not in data:
-                    return await msg.edit_text(f"Ошибка API: {str(data)[:50]}")
+                    await msg.edit_text(f"Ошибка API: {str(data)[:50]}")
+                    return
                 
                 task_id = data["data"].get("taskId")
-                if not task_id: return await msg.edit_text("Ошибка: taskId не найден.")
+                if not task_id: 
+                    await msg.edit_text("Ошибка: taskId не найден.")
+                    return
                 
                 await msg.edit_text("Задача принята. Ожидайте...")
                 for i in range(20):
@@ -51,7 +56,10 @@ async def handle_text(message: Message):
                     res_data = res.json()
                     if res_data and isinstance(res_data, dict) and res_data.get("data", {}).get("resultJson"):
                         url = json.loads(res_data["data"]["resultJson"]).get("resultUrls", [None])[0]
-                        if url: await message.answer_photo(photo=url, caption="✨ Готово!"); return await msg.delete()
+                        if url: 
+                            await message.answer_photo(photo=url, caption="✨ Готово!")
+                            await msg.delete()
+                            return
                 await msg.edit_text("Время ожидания вышло.")
             except Exception as e:
                 await msg.edit_text(f"Ошибка рисования: {str(e)}")
@@ -65,5 +73,22 @@ async def handle_text(message: Message):
         async with httpx.AsyncClient(timeout=60.0) as client:
             try:
                 resp = await client.post(CHAT_API_URL, json=payload, headers=headers)
-                if not resp.text: return await msg.edit_text("Ошибка: API вернуло пустоту.")
+                if not resp.text: 
+                    await msg.edit_text("Ошибка: API вернуло пустоту.")
+                    return
                 data = resp.json()
+                
+                if isinstance(data, dict) and "choices" in data:
+                    answer = data["choices"][0]["message"]["content"]
+                    await msg.delete()
+                    await message.answer(answer)
+                else:
+                    await msg.edit_text(f"Ошибка чата: {str(data)[:50]}")
+            except Exception as e:
+                await msg.edit_text(f"Ошибка общения: {str(e)}")
+
+async def main():
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
