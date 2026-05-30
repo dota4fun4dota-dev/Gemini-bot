@@ -15,12 +15,12 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# Принудительная очистка webhook при старте для устранения конфликтов
+# 1. Очистка старых обновлений для устранения конфликтов
 @dp.startup()
 async def on_startup():
+    logging.info("Очистка старых обновлений...")
     await bot.delete_webhook(drop_pending_updates=True)
 
-# Функция для разбивки длинных ответов
 async def send_long_message(message: Message, text: str):
     for i in range(0, len(text), 4000):
         await message.answer(text[i:i+4000])
@@ -31,7 +31,7 @@ async def start(message: Message):
 
 @dp.message(F.photo)
 async def handle_photo(message: Message):
-    msg = await message.answer("⏳ Обрабатываю изображение...")
+    msg = await message.answer("⏳ Обрабатываю фото...")
     file = await bot.get_file(message.photo[-1].file_id)
     photo_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file.file_path}"
     payload = {"model": "grok-imagine/image-to-image", "input": {"prompt": message.caption or "Enhance", "image_urls": [photo_url]}}
@@ -40,45 +40,62 @@ async def handle_photo(message: Message):
     async with httpx.AsyncClient() as client:
         try:
             resp = await client.post(f"{API_BASE}/createTask", json=payload, headers=headers)
-            task_id = resp.json().get("data", {}).get("taskId")
-            for i in range(15):
+            data = resp.json()
+            if not data or "data" not in data: return await msg.edit_text("Ошибка API")
+            
+            task_id = data["data"].get("taskId")
+            for i in range(20):
                 await asyncio.sleep(10)
-                data = (await client.get(f"{API_BASE}/recordInfo?taskId={task_id}", headers=headers)).json().get("data", {})
-                if data.get("resultJson"):
-                    url = json.loads(data["resultJson"]).get("resultUrls", [None])[0]
+                res = await client.get(f"{API_BASE}/recordInfo?taskId={task_id}", headers=headers)
+                res_data = res.json()
+                if res_data and res_data.get("data", {}).get("resultJson"):
+                    url = json.loads(res_data["data"]["resultJson"]).get("resultUrls", [None])[0]
                     if url: await message.answer_photo(photo=url, caption="✨ Готово!"); return await msg.delete()
         except Exception as e: await msg.edit_text(f"Ошибка: {str(e)}")
 
 @dp.message(F.text)
 async def handle_text(message: Message):
+    # 2. Логика РИСОВАНИЯ (отдельно)
     if message.text.lower().startswith("нарисуй"):
         msg = await message.answer("🎨 Рисую...")
         prompt = message.text.lower().replace("нарисуй", "").strip()
         payload = {"model": "flux-2/pro-text-to-image", "input": {"prompt": prompt, "aspect_ratio": "1:1"}}
         headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
+        
         async with httpx.AsyncClient() as client:
             resp = await client.post(f"{API_BASE}/createTask", json=payload, headers=headers)
-            task_id = resp.json().get("data", {}).get("taskId")
+            data = resp.json()
+            if not data or "data" not in data:
+                return await msg.edit_text("Ошибка API при создании задачи.")
+            
+            task_id = data["data"].get("taskId")
+            await msg.edit_text("Задача принята. Ожидайте...")
+            
             for i in range(20):
                 await asyncio.sleep(10)
-                data = (await client.get(f"{API_BASE}/recordInfo?taskId={task_id}", headers=headers)).json().get("data", {})
-                if data.get("resultJson"):
-                    url = json.loads(data["resultJson"]).get("resultUrls", [None])[0]
+                res = await client.get(f"{API_BASE}/recordInfo?taskId={task_id}", headers=headers)
+                res_data = res.json()
+                if res_data and res_data.get("data", {}).get("resultJson"):
+                    url = json.loads(res_data["data"]["resultJson"]).get("resultUrls", [None])[0]
                     if url: await message.answer_photo(photo=url, caption="✨ Готово!"); return await msg.delete()
+            await msg.edit_text("Время вышло.")
+
+    # 3. Логика ОБЩЕНИЯ (отдельно, без обращения к taskId)
     else:
         msg = await message.answer("🤔 Думаю...")
         headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
-        # Используем формат сообщения, который хорошо переваривает API Gemini
         payload = {"messages": [{"role": "user", "content": message.text}]}
+        
         async with httpx.AsyncClient(timeout=60.0) as client:
             try:
                 resp = await client.post(CHAT_API_URL, json=payload, headers=headers)
-                if resp.status_code == 200:
-                    answer = resp.json().get("choices", [{}])[0].get("message", {}).get("content", "Нет ответа.")
+                data = resp.json()
+                if resp.status_code == 200 and "choices" in data:
+                    answer = data["choices"][0]["message"]["content"]
                     await msg.delete()
                     await send_long_message(message, answer)
                 else:
-                    await msg.edit_text(f"Ошибка API {resp.status_code}: {resp.text[:100]}")
+                    await msg.edit_text(f"Ошибка чата: {resp.text[:50]}")
             except Exception as e:
                 await msg.edit_text(f"Ошибка: {str(e)}")
 
