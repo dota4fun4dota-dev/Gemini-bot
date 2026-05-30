@@ -34,8 +34,11 @@ async def handle_photo(message: Message):
     async with httpx.AsyncClient() as client:
         try:
             resp = await client.post(f"{API_BASE}/createTask", json=payload, headers=headers)
+            # Безопасное получение JSON
             data_resp = resp.json() if resp.text else {}
-            if resp.status_code != 200 or data_resp is None: 
+            if data_resp is None: data_resp = {}
+            
+            if resp.status_code != 200: 
                 return await msg.edit_text(f"Ошибка API: {resp.text}")
             
             task_id = data_resp.get("data", {}).get("taskId")
@@ -45,6 +48,7 @@ async def handle_photo(message: Message):
                 await asyncio.sleep(10)
                 res = await client.get(f"{API_BASE}/recordInfo?taskId={task_id}", headers=headers)
                 res_data = res.json() if res.text else {}
+                if res_data is None: res_data = {}
                 res_data = res_data.get("data", {}) if res_data else {}
                 if res_data.get("resultJson"):
                     url = json.loads(res_data["resultJson"]).get("resultUrls", [None])[0]
@@ -62,8 +66,9 @@ async def handle_text(message: Message):
         async with httpx.AsyncClient() as client:
             resp = await client.post(f"{API_BASE}/createTask", json=payload, headers=headers)
             data_resp = resp.json() if resp.text else {}
+            if data_resp is None: data_resp = {}
             
-            if resp.status_code != 200 or data_resp is None:
+            if resp.status_code != 200:
                 return await msg.edit_text(f"Ошибка API: {resp.text}")
             
             task_id = data_resp.get("data", {}).get("taskId")
@@ -74,6 +79,7 @@ async def handle_text(message: Message):
                 await asyncio.sleep(15)
                 res = await client.get(f"{API_BASE}/recordInfo?taskId={task_id}", headers=headers)
                 res_data = res.json() if res.text else {}
+                if res_data is None: res_data = {}
                 res_data = res_data.get("data", {}) if res_data else {}
                 if res_data.get("resultJson"):
                     url = json.loads(res_data["resultJson"]).get("resultUrls", [None])[0]
@@ -87,6 +93,8 @@ async def handle_text(message: Message):
             try:
                 resp = await client.post(CHAT_API_URL, json=payload, headers=headers)
                 data_resp = resp.json() if resp.text else {}
+                if data_resp is None: data_resp = {}
+                
                 if resp.status_code == 200 and data_resp:
                     answer = data_resp.get("choices", [{}])[0].get("message", {}).get("content", "Нет ответа.")
                     await msg.delete()
