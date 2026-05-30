@@ -17,137 +17,89 @@ dp = Dispatcher()
 user_models = {}
 MODELS = {
     "flux": "flux-2/pro-text-to-image",
-    "imagen": "google/imagen4-fast"
+    "imagen": "google/imagen4-fast",
+    "grok_img": "grok-imagine/image-to-image" # Добавили модель для Img2Img
 }
 
 def get_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Flux-2 Pro (Высокое качество)", callback_data="set_flux")],
-        [InlineKeyboardButton(text="Imagen 4 (Быстрый стиль)", callback_data="set_imagen")]
+        [InlineKeyboardButton(text="Flux-2 Pro", callback_data="set_flux")],
+        [InlineKeyboardButton(text="Imagen 4", callback_data="set_imagen")],
+        [InlineKeyboardButton(text="Grok Img2Img", callback_data="set_grok_img")]
     ])
 
 @dp.message(CommandStart())
 async def start(message: Message):
     user_models[message.from_user.id] = MODELS["flux"]
-    welcome_text = (
-        "🤖 **Добро пожаловать в AI Art Bot!**\n\n"
-        "Я умею превращать твои текстовые описания в уникальные изображения с помощью продвинутых нейросетей.\n\n"
-        "**Как пользоваться:**\n"
-        "1. Выбери модель в меню ниже.\n"
-        "2. Напиши 'Нарисуй [твое описание]', например: *Нарисуй кота в космосе*.\n"
-        "3. Подожди немного, пока я генерирую арт!\n\n"
-        "**Мои возможности:**\n"
-        "• Генерация фотореалистичных и художественных изображений.\n"
-        "• Поддержка нескольких мощных моделей ИИ."
-    )
-    await message.answer(welcome_text, reply_markup=get_menu(), parse_mode="Markdown")
+    await message.answer("Бот готов! Выбери модель и пиши 'Нарисуй [описание]'.\nДля переделки фото — просто отправь фото с подписью.", reply_markup=get_menu())
 
 @dp.callback_query(F.data.startswith("set_"))
 async def set_model(callback: CallbackQuery):
     model_key = callback.data.split("_")[1]
     user_models[callback.from_user.id] = MODELS.get(model_key, MODELS["flux"])
-    await callback.message.answer(f"✅ Модель успешно изменена на: **{model_key.upper()}**", parse_mode="Markdown")
+    await callback.message.answer(f"✅ Модель установлена: {model_key.upper()}")
     await callback.answer()
-# Добавь этот блок в свой основной файл main.py
-@dp.message(F.photo)
-async def image_to_image_handler(message: Message):
-    # 1. Скачиваем фото из Telegram
-    file_id = message.photo[-1].file_id
-    file = await bot.get_file(file_id)
-    file_path = file.file_path
-    file_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
-    
-    # 2. Получаем промпт из подписи (caption) к фото
-    prompt = message.caption.replace("переделай", "").strip() if message.caption else "make it more artistic"
-    model = user_models.get(message.from_user.id, MODELS["flux"])
-    
-    msg = await message.answer("⏳ Обрабатываю ваше фото...")
 
-    # 3. Формируем запрос с параметром image_url (структура зависит от модели)
-    payload = {
-        "model": "flux-2/pro-image-to-image", # Используем модель для Img2Img
-        "input": {
-            "prompt": prompt,
-            "image_url": file_url,
-            "aspect_ratio": "1:1"
-        }
-    }
-    
-    headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
-    
-    async with httpx.AsyncClient() as client:
-        try:
-            resp = await client.post(f"{API_BASE}/createTask", json=payload, headers=headers)
-            task_id = resp.json().get("data", {}).get("taskId")
-            
-            if not task_id:
-                return await msg.edit_text(f"Ошибка Img2Img: {resp.json()}")
-
-            # Цикл ожидания такой же, как в текстовой генерации
-            await msg.edit_text("🎨 Задача принята. Жду результат...")
-            for i in range(20):
-                await asyncio.sleep(15)
-                status_resp = await client.get(f"{API_BASE}/recordInfo?taskId={task_id}", headers=headers)
-                data = status_resp.json().get("data", {})
-                
-                # Парсим URL (аналогично текстовой генерации)
-                if data.get("resultJson"):
-                    res_obj = json.loads(data["resultJson"])
-                    url = res_obj.get("resultUrls", [None])[0]
-                    if url:
-                        await message.answer_photo(photo=url, caption="✨ Готово!")
-                        return await msg.delete()
-        except Exception as e:
-            await msg.edit_text(f"⚠️ Ошибка: {str(e)}")
-            
+# --- ПУНКТ 1: Текстовая генерация ---
 @dp.message(F.text.lower().startswith("нарисуй"))
 async def image_handler(message: Message):
     prompt = message.text.lower().replace("нарисуй", "").strip()
-    if not prompt:
-        return await message.answer("Пожалуйста, напиши описание после команды 'Нарисуй'.")
-        
     model = user_models.get(message.from_user.id, MODELS["flux"])
-    msg = await message.answer(f"⏳ Генерирую изображение через {model}...")
+    msg = await message.answer(f"⏳ Генерирую через {model}...")
+    
+    headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
+    payload = {"model": model, "input": {"prompt": prompt, "aspect_ratio": "1:1", "resolution": "1K"}}
+    
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(f"{API_BASE}/createTask", json=payload, headers=headers)
+        task_id = resp.json().get("data", {}).get("taskId")
+        if not task_id: return await msg.edit_text("Ошибка создания задачи.")
+        
+        for i in range(20):
+            await asyncio.sleep(15)
+            status_resp = await client.get(f"{API_BASE}/recordInfo?taskId={task_id}", headers=headers)
+            data = status_resp.json().get("data", {})
+            if data.get("resultJson"):
+                res_obj = json.loads(data["resultJson"])
+                url = res_obj.get("resultUrls", [None])[0]
+                if url:
+                    await message.answer_photo(photo=url, caption=f"Готово: {prompt}")
+                    return await msg.delete()
+        await msg.edit_text("⚠️ Ошибка или время вышло.")
+
+# --- ПУНКТ 2: Обработка фото (Img2Img) ---
+@dp.message(F.photo)
+async def image_to_image_handler(message: Message):
+    # ВАЖНО: Сейчас мы используем URL фото из Telegram, если Kie.ai поддерживает прямые ссылки
+    file_id = message.photo[-1].file_id
+    file = await bot.get_file(file_id)
+    photo_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file.file_path}"
+    
+    prompt = message.caption or "Recreate this image"
+    msg = await message.answer("⏳ Переделываю фото...")
     
     headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
     payload = {
-        "model": model,
-        "input": {"prompt": prompt, "aspect_ratio": "1:1", "resolution": "1K"}
+        "model": "grok-imagine/image-to-image",
+        "input": {"prompt": prompt, "image_urls": [photo_url]}
     }
     
     async with httpx.AsyncClient() as client:
-        try:
-            resp = await client.post(f"{API_BASE}/createTask", json=payload, headers=headers)
-            task_data = resp.json()
-            task_id = task_data.get("data", {}).get("taskId")
-            
-            if not task_id:
-                return await msg.edit_text(f"❌ Ошибка: {task_data.get('msg')}")
-            
-            await msg.edit_text(f"🎨 Задача принята. Ожидайте...")
-
-            for i in range(20):
-                await asyncio.sleep(15)
-                status_resp = await client.get(f"{API_BASE}/recordInfo?taskId={task_id}", headers=headers)
-                data = status_resp.json().get("data", {})
-                
-                url = None
-                if data.get("resultJson"):
-                    res_obj = json.loads(data["resultJson"])
-                    url = res_obj.get("resultUrls", [None])[0]
-                
+        resp = await client.post(f"{API_BASE}/createTask", json=payload, headers=headers)
+        task_id = resp.json().get("data", {}).get("taskId")
+        if not task_id: return await msg.edit_text(f"Ошибка Img2Img: {resp.json().get('msg')}")
+        
+        for i in range(20):
+            await asyncio.sleep(15)
+            status_resp = await client.get(f"{API_BASE}/recordInfo?taskId={task_id}", headers=headers)
+            data = status_resp.json().get("data", {})
+            if data.get("resultJson"):
+                res_obj = json.loads(data["resultJson"])
+                url = res_obj.get("resultUrls", [None])[0]
                 if url:
-                    await message.answer_photo(photo=url, caption=f"✨ Готово: {prompt}")
+                    await message.answer_photo(photo=url, caption="✨ Готово!")
                     return await msg.delete()
-                elif data.get("state") == "fail":
-                    return await msg.edit_text("❌ Ошибка при генерации.")
-            
-            await msg.edit_text("⚠️ Превышено время ожидания.")
-        except Exception as e:
-            await msg.edit_text(f"⚠️ Ошибка: {str(e)}")
+        await msg.edit_text("⚠️ Ошибка переделки.")
 
-async def main():
-    await dp.start_polling(bot)
-
-if __name__ == "__main__":
-    asyncio.run(main())
+async def main(): await dp.start_polling(bot)
+if __name__ == "__main__": asyncio.run(main())
