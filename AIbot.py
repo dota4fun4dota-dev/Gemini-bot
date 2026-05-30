@@ -15,7 +15,6 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# Принудительно очищаем очередь сообщений при запуске
 @dp.startup()
 async def on_startup():
     logging.info("Очистка старых обновлений...")
@@ -40,14 +39,19 @@ async def handle_photo(message: Message):
     async with httpx.AsyncClient() as client:
         try:
             resp = await client.post(f"{API_BASE}/createTask", json=payload, headers=headers)
-            task_id = resp.json().get("data", {}).get("taskId")
-            if not task_id: return await msg.edit_text("Ошибка API")
+            if not resp.text: return await msg.edit_text("Ошибка: API вернуло пустой ответ.")
+            data = resp.json()
+            task_id = data.get("data", {}).get("taskId") if data else None
+            
+            if not task_id: return await msg.edit_text(f"Ошибка API: {resp.text}")
             
             for i in range(20):
                 await asyncio.sleep(15)
                 res = await client.get(f"{API_BASE}/recordInfo?taskId={task_id}", headers=headers)
-                url = json.loads(res.json().get("data", {}).get("resultJson", "{}")).get("resultUrls", [None])[0]
-                if url: await message.answer_photo(photo=url, caption="✨ Готово!"); return await msg.delete()
+                if res.text:
+                    res_data = res.json().get("data", {})
+                    url = json.loads(res_data.get("resultJson", "{}")).get("resultUrls", [None])[0]
+                    if url: await message.answer_photo(photo=url, caption="✨ Готово!"); return await msg.delete()
         except Exception as e: await msg.edit_text(f"Ошибка: {str(e)}")
 
 @dp.message(F.text)
@@ -57,15 +61,24 @@ async def handle_text(message: Message):
         prompt = message.text.lower().replace("нарисуй", "").strip()
         payload = {"model": "flux-2/pro-text-to-image", "input": {"prompt": prompt, "aspect_ratio": "1:1"}}
         headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
+        
         async with httpx.AsyncClient() as client:
             resp = await client.post(f"{API_BASE}/createTask", json=payload, headers=headers)
-            task_id = resp.json().get("data", {}).get("taskId")
+            if not resp.text: return await msg.edit_text("Ошибка: API вернуло пустоту.")
+            data = resp.json()
+            task_id = data.get("data", {}).get("taskId") if data else None
+            
+            if not task_id: return await msg.edit_text(f"Ошибка API: {resp.text}")
+            
             await msg.edit_text("Задача принята. Ожидайте...")
             for i in range(20):
                 await asyncio.sleep(15)
                 res = await client.get(f"{API_BASE}/recordInfo?taskId={task_id}", headers=headers)
-                url = json.loads(res.json().get("data", {}).get("resultJson", "{}")).get("resultUrls", [None])[0]
-                if url: await message.answer_photo(photo=url, caption=f"Готово: {prompt}"); return await msg.delete()
+                if res.text:
+                    res_data = res.json().get("data", {})
+                    url = json.loads(res_data.get("resultJson", "{}")).get("resultUrls", [None])[0]
+                    if url: await message.answer_photo(photo=url, caption=f"Готово: {prompt}"); return await msg.delete()
+            await msg.edit_text("⚠️ Время вышло.")
     else:
         msg = await message.answer("🤔 Думаю...")
         headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
@@ -73,9 +86,13 @@ async def handle_text(message: Message):
         async with httpx.AsyncClient(timeout=60.0) as client:
             try:
                 resp = await client.post(CHAT_API_URL, json=payload, headers=headers)
-                answer = resp.json().get("choices", [{}])[0].get("message", {}).get("content", "Нет ответа.")
-                await msg.delete()
-                await send_long_message(message, answer)
+                if resp.text:
+                    data = resp.json()
+                    answer = data.get("choices", [{}])[0].get("message", {}).get("content", "Нет ответа.")
+                    await msg.delete()
+                    await send_long_message(message, answer)
+                else:
+                    await msg.edit_text("Ошибка: API вернуло пустой ответ.")
             except Exception as e:
                 await msg.edit_text(f"Ошибка: {str(e)}")
 
