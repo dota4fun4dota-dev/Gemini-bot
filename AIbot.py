@@ -15,7 +15,6 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# Функция для отправки длинных сообщений кусками
 async def send_long_message(message: Message, text: str):
     for i in range(0, len(text), 4000):
         await message.answer(text[i:i+4000])
@@ -31,16 +30,23 @@ async def handle_photo(message: Message):
     photo_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file.file_path}"
     payload = {"model": "grok-imagine/image-to-image", "input": {"prompt": message.caption or "Enhance", "image_urls": [photo_url]}}
     headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
+    
     async with httpx.AsyncClient() as client:
         try:
             resp = await client.post(f"{API_BASE}/createTask", json=payload, headers=headers)
-            if resp.status_code != 200: return await msg.edit_text(f"Ошибка API: {resp.text}")
-            task_id = resp.json().get("data", {}).get("taskId")
+            data_resp = resp.json() if resp.text else {}
+            if resp.status_code != 200 or not data_resp: 
+                return await msg.edit_text(f"Ошибка API: {resp.text}")
+            
+            task_id = data_resp.get("data", {}).get("taskId")
+            if not task_id: return await msg.edit_text("Не удалось получить taskId")
+            
             for i in range(15):
                 await asyncio.sleep(10)
-                data = (await client.get(f"{API_BASE}/recordInfo?taskId={task_id}", headers=headers)).json().get("data", {})
-                if data.get("resultJson"):
-                    url = json.loads(data["resultJson"]).get("resultUrls", [None])[0]
+                res = await client.get(f"{API_BASE}/recordInfo?taskId={task_id}", headers=headers)
+                res_data = res.json().get("data", {})
+                if res_data.get("resultJson"):
+                    url = json.loads(res_data["resultJson"]).get("resultUrls", [None])[0]
                     if url: await message.answer_photo(photo=url, caption="✨ Готово!"); return await msg.delete()
         except Exception as e: await msg.edit_text(f"Ошибка: {str(e)}")
 
@@ -51,26 +57,25 @@ async def handle_text(message: Message):
         prompt = message.text.lower().replace("нарисуй", "").strip()
         payload = {"model": "flux-2/pro-text-to-image", "input": {"prompt": prompt, "aspect_ratio": "1:1"}}
         headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
+        
         async with httpx.AsyncClient() as client:
             resp = await client.post(f"{API_BASE}/createTask", json=payload, headers=headers)
-            task_id = resp.json().get("data", {}).get("taskId")
+            data_resp = resp.json() if resp.text else {}
+            
+            if resp.status_code != 200 or not data_resp:
+                return await msg.edit_text(f"Ошибка API: {resp.text}")
+            
+            task_id = data_resp.get("data", {}).get("taskId")
             await msg.edit_text("Задача принята. Ожидайте...")
-
-            # --- ВОССТАНОВЛЕННЫЙ ЦИКЛ ОЖИДАНИЯ (ИЗ БЭКАПА) ---
+            
             for i in range(20):
                 await asyncio.sleep(15)
-                status_resp = await client.get(f"{API_BASE}/recordInfo?taskId={task_id}", headers=headers)
-                data = status_resp.json().get("data", {})
-                
-                if data.get("resultJson"):
-                    res_obj = json.loads(data["resultJson"])
-                    url = res_obj.get("resultUrls", [None])[0]
-                    if url:
-                        await message.answer_photo(photo=url, caption=f"Готово: {prompt}")
-                        return await msg.delete()
+                res = await client.get(f"{API_BASE}/recordInfo?taskId={task_id}", headers=headers)
+                res_data = res.json().get("data", {})
+                if res_data.get("resultJson"):
+                    url = json.loads(res_data["resultJson"]).get("resultUrls", [None])[0]
+                    if url: await message.answer_photo(photo=url, caption=f"Готово: {prompt}"); return await msg.delete()
             await msg.edit_text("⚠️ Ошибка или время вышло.")
-            # ------------------------------------------------
-
     else:
         msg = await message.answer("🤔 Думаю...")
         headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
@@ -78,14 +83,15 @@ async def handle_text(message: Message):
         async with httpx.AsyncClient(timeout=60.0) as client:
             try:
                 resp = await client.post(CHAT_API_URL, json=payload, headers=headers)
+                data_resp = resp.json() if resp.text else {}
                 if resp.status_code == 200:
-                    answer = resp.json().get("choices", [{}])[0].get("message", {}).get("content", "Нет ответа.")
-                    await msg.delete() # Удаляем "🤔 Думаю..."
-                    await send_long_message(message, answer) # Отправляем длинный текст
+                    answer = data_resp.get("choices", [{}])[0].get("message", {}).get("content", "Нет ответа.")
+                    await msg.delete()
+                    await send_long_message(message, answer)
                 else:
                     await msg.edit_text(f"API Error {resp.status_code}: {resp.text[:100]}")
             except Exception as e:
-                await msg.edit_text(f"Connection error: {type(e).__name__}: {str(e)}")
+                await msg.edit_text(f"Connection error: {str(e)}")
 
 async def main(): await dp.start_polling(bot)
 if __name__ == "__main__": asyncio.run(main())
