@@ -34,25 +34,14 @@ async def handle_photo(message: Message):
     async with httpx.AsyncClient() as client:
         try:
             resp = await client.post(f"{API_BASE}/createTask", json=payload, headers=headers)
-            # Безопасное получение JSON
-            data_resp = resp.json() if resp.text else {}
-            if data_resp is None: data_resp = {}
+            task_id = resp.json().get("data", {}).get("taskId")
+            if not task_id: return await msg.edit_text("Ошибка API (нет taskId)")
             
-            if resp.status_code != 200: 
-                return await msg.edit_text(f"Ошибка API: {resp.text}")
-            
-            task_id = data_resp.get("data", {}).get("taskId")
-            if not task_id: return await msg.edit_text("Не удалось получить taskId")
-            
-            for i in range(15):
-                await asyncio.sleep(10)
+            for i in range(20):
+                await asyncio.sleep(15)
                 res = await client.get(f"{API_BASE}/recordInfo?taskId={task_id}", headers=headers)
-                res_data = res.json() if res.text else {}
-                if res_data is None: res_data = {}
-                res_data = res_data.get("data", {}) if res_data else {}
-                if res_data.get("resultJson"):
-                    url = json.loads(res_data["resultJson"]).get("resultUrls", [None])[0]
-                    if url: await message.answer_photo(photo=url, caption="✨ Готово!"); return await msg.delete()
+                url = json.loads(res.json().get("data", {}).get("resultJson", "{}")).get("resultUrls", [None])[0]
+                if url: await message.answer_photo(photo=url, caption="✨ Готово!"); return await msg.delete()
         except Exception as e: await msg.edit_text(f"Ошибка: {str(e)}")
 
 @dp.message(F.text)
@@ -65,25 +54,14 @@ async def handle_text(message: Message):
         
         async with httpx.AsyncClient() as client:
             resp = await client.post(f"{API_BASE}/createTask", json=payload, headers=headers)
-            data_resp = resp.json() if resp.text else {}
-            if data_resp is None: data_resp = {}
-            
-            if resp.status_code != 200:
-                return await msg.edit_text(f"Ошибка API: {resp.text}")
-            
-            task_id = data_resp.get("data", {}).get("taskId")
-            if not task_id: return await msg.edit_text("Не удалось создать задачу.")
-            
+            task_id = resp.json().get("data", {}).get("taskId")
             await msg.edit_text("Задача принята. Ожидайте...")
+            
             for i in range(20):
                 await asyncio.sleep(15)
                 res = await client.get(f"{API_BASE}/recordInfo?taskId={task_id}", headers=headers)
-                res_data = res.json() if res.text else {}
-                if res_data is None: res_data = {}
-                res_data = res_data.get("data", {}) if res_data else {}
-                if res_data.get("resultJson"):
-                    url = json.loads(res_data["resultJson"]).get("resultUrls", [None])[0]
-                    if url: await message.answer_photo(photo=url, caption=f"Готово: {prompt}"); return await msg.delete()
+                url = json.loads(res.json().get("data", {}).get("resultJson", "{}")).get("resultUrls", [None])[0]
+                if url: await message.answer_photo(photo=url, caption=f"Готово: {prompt}"); return await msg.delete()
             await msg.edit_text("⚠️ Ошибка или время вышло.")
     else:
         msg = await message.answer("🤔 Думаю...")
@@ -92,17 +70,11 @@ async def handle_text(message: Message):
         async with httpx.AsyncClient(timeout=60.0) as client:
             try:
                 resp = await client.post(CHAT_API_URL, json=payload, headers=headers)
-                data_resp = resp.json() if resp.text else {}
-                if data_resp is None: data_resp = {}
-                
-                if resp.status_code == 200 and data_resp:
-                    answer = data_resp.get("choices", [{}])[0].get("message", {}).get("content", "Нет ответа.")
-                    await msg.delete()
-                    await send_long_message(message, answer)
-                else:
-                    await msg.edit_text(f"API Error {resp.status_code}: {resp.text[:100]}")
+                answer = resp.json().get("choices", [{}])[0].get("message", {}).get("content", "Нет ответа.")
+                await msg.delete()
+                await send_long_message(message, answer)
             except Exception as e:
-                await msg.edit_text(f"Connection error: {str(e)}")
+                await msg.edit_text(f"Ошибка: {str(e)}")
 
 async def main(): await dp.start_polling(bot)
 if __name__ == "__main__": asyncio.run(main())
