@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import httpx
+import json
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message
 from aiogram.filters import CommandStart
@@ -21,7 +22,7 @@ async def start(message: Message):
 async def image_handler(message: Message):
     prompt = message.text.lower().replace("нарисуй", "").strip()
     if not prompt:
-        return await message.answer("Пожалуйста, введи описание после слова 'Нарисуй'.")
+        return await message.answer("Укажите, что нарисовать.")
     
     msg = await message.answer("⏳ Создаю задачу...")
     
@@ -33,41 +34,44 @@ async def image_handler(message: Message):
     
     async with httpx.AsyncClient() as client:
         try:
-            # 1. Создание
             resp = await client.post(f"{API_BASE}/createTask", json=payload, headers=headers)
-            json_resp = resp.json()
-            
-            # ВАЖНО: используем 'taskId' (с маленькой буквы), как в логах сервера
-            data_body = json_resp.get("data", {})
-            task_id = data_body.get("taskId") or data_body.get("TaskId")
+            data_resp = resp.json()
+            task_id = data_resp.get("data", {}).get("taskId")
             
             if not task_id:
-                return await msg.edit_text(f"Ошибка API: {json_resp}")
+                return await msg.edit_text(f"Ошибка: {data_resp}")
             
-            await msg.edit_text(f"🎨 Задача принята ({task_id}). Жду результат...")
+            await msg.edit_text(f"🎨 Задача принята. Жду результат...")
 
-            # 2. Опрос
             for i in range(20):
                 await asyncio.sleep(15)
                 status_resp = await client.get(f"{API_BASE}/recordInfo?taskId={task_id}", headers=headers)
                 data = status_resp.json().get("data", {})
                 
-                logging.info(f"ОТВЕТ RECORDINFO: {data}")
+                # Обработка resultJson из логов
+                result_json_str = data.get("resultJson")
+                url = None
                 
-                # Ищем URL в разных местах ответа
-                url = data.get("result", {}).get("url") or data.get("output", {}).get("url")
-                state = data.get("state")
+                if result_json_str:
+                    try:
+                        res_obj = json.loads(result_json_str)
+                        # Извлекаем из ключа resultUrls, который мы увидели в логах
+                        urls = res_obj.get("resultUrls")
+                        if urls and isinstance(urls, list):
+                            url = urls[0]
+                    except Exception as e:
+                        logging.error(f"Ошибка парсинга JSON: {e}")
                 
                 if url:
                     await message.answer_photo(photo=url, caption=f"Готово: {prompt}")
                     return await msg.delete()
-                elif state == "fail":
-                    return await msg.edit_text(f"Ошибка генерации: {data.get('failMsg', 'unknown')}")
+                elif data.get("state") == "fail":
+                    return await msg.edit_text("❌ Ошибка генерации.")
 
-            await msg.edit_text("⚠️ Время вышло, картинка еще не готова.")
+            await msg.edit_text("⚠️ Время вышло.")
         except Exception as e:
-            logging.error(f"Критическая ошибка: {e}")
-            await msg.edit_text(f"⚠️ Ошибка: {str(e)}")
+            logging.error(f"Ошибка: {e}")
+            await msg.edit_text(f"⚠️ Ошибка выполнения.")
 
 async def main():
     await dp.start_polling(bot)
